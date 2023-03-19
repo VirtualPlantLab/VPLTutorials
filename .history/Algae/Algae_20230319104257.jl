@@ -15,6 +15,7 @@ Lindermayer as one of the first L-systems.
 First, we need to load the VPL metapackage, which will automatically load all
 the packages in the VPL ecosystem. 
 =#
+
 using VPL 
 
 #=
@@ -32,6 +33,7 @@ include type definitions in a module to avoid having to restart the Julia
 session whenever we want to redefine them. Because each module is an independent
 namespace, we need to import `Node` from the VPL package inside the module:
 =#
+
 module algae
     import VPL: Node
     struct A <: Node end
@@ -40,14 +42,16 @@ end
 import .algae
 
 #=
+
 Note that in this very example we do not need to store any data or state inside
 the nodes, so types `A` and `B` do not require fields.
 
 The axiom is simply defined as an instance of type of `A`:
+
 =#
 axiom = algae.A()
-
 #=
+
 The rewriting rules are implemented in VPL as objects of type `Rule`. In VPL, a
 rewriting rule substitutes a node in a graph with a new node or subgraph and is
 therefore composed of two parts:
@@ -70,21 +74,23 @@ objects that inherit from `Node`. The operation `+` implies a linear
 relationship between two nodes and `[]` indicates branching.
 
 The implementation of the two rules of algae growth model in VPL is as follows:
+
 =#
 rule1 = Rule(algae.A, rhs = x -> algae.A() + algae.B())
 rule2 = Rule(algae.B, rhs = x -> algae.A())
-
 #=
+
 Note that in each case, the argument `rhs` is being assigned an anonymous (aka
 *lambda*) function. This is a function without a name that is defined directly
 in the assigment to the argument. That is, the Julia expression `x -> A() + B()`
 is equivalent to the following function definition:
+
 =#
 function rule_1(x)
     algae.A() + algae.B()
 end
-
 #=
+
 For simple rules (especially if the right hand side is just a line of code) it
 is easier to just define the right hand side of the rule with an anonymous
 function rather than creating a standalone function with a meaningful name.
@@ -94,13 +100,15 @@ from the REPL.
 With the axiom and rules we can now create a `Graph` object that represents the
 algae organism. The first argument is the axiom and the second is a tuple with
 all the rewriting rules:
+
 =#
 organism = Graph(axiom = axiom, rules = (rule1, rule2))
-
 #=
+
 If we apply the rewriting rules iteratively, the graph will grow, in this case
 representing the growth of the algae organism. The rewriting rules are applied
 on the graph with the function `rewrite!()`:
+
 =#
 rewrite!(organism)
 
@@ -114,6 +122,7 @@ code is executed. By default, `draw()` will create a new window where an
 interactive version of the graph will be drawn and one can zoom and pan with the
 mouse.
 =#
+
 draw(organism)
 
 #=
@@ -124,11 +133,13 @@ purposes (this will be explained in more advanced examples).
 
 Applying multiple iterations of rewriting can be achieved with a simple loop:
 =#
+
 for i in 1:4
     rewrite!(organism)
 end
 
 # And we can verify that the graph grew as expected:
+
 draw(organism)
 
 # The network is rather boring as the system is growing linearly (no branching)

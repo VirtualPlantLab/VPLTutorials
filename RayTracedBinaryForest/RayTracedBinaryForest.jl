@@ -1,16 +1,16 @@
 #=
-
-Ray-traced forest of binary trees
-Alejandro Morales Sierra
+Ray-traced forest of binary trees 
+Alejandro Morales Sierra 
 Centre for Crop Systems Analysis - Wageningen University
 
 In this example we extend the binary forest example to couple growth to light
-interception, using a simple light model, where each tree is described by a 
-separate graph object and parameters driving the growth of these trees vary 
-across individuals following a predefined distribution. This is not intended
-an optimal implementation of such a model but rather a demonstration of how to
-use the ray tracer within VPL in combination with Sky package to simulate light
-distribution within a scene and retrieved the resulting values on an organ basis.
+interception, using a simple light model, where each tree is described by a
+separate graph object and parameters driving the growth of these trees vary
+across individuals following a predefined distribution. This is not intended an
+optimal implementation of such a model but rather a demonstration of how to use
+the ray tracer within VPL in combination with Sky package to simulate light
+distribution within a scene and retrieved the resulting values on an organ
+basis.
 
 The following packages are needed:
 =#
@@ -56,7 +56,6 @@ The methods for creating the geometry and color of the tree are the same as in
 the previous example with the addition that we also assign a `Material` object
 to the argument `material` (which is a `Lambertian` object in this case).
 =#
-
 function VPL.feed!(turtle::Turtle, i::rbtree.Internode, vars)
     HollowCube!(turtle, length = i.length, height =  i.width, width =  i.width, 
                 move = true, color = RGB(0,0.35,0), material = i.material)
@@ -64,16 +63,19 @@ function VPL.feed!(turtle::Turtle, i::rbtree.Internode, vars)
 end
 
 #=
-The growth rule is also the same as in the previous example, but now the Internode
-takes initial biomass and optical properties. The optical properties are stored
-in a `Lambertian` object, which is a `Material` object that defines the transmittance
-and reflectance of the material for each waveband to be simulated (in this case three).
+The growth rule is also the same as in the previous example, but now the
+Internode takes initial biomass and optical properties. The optical properties
+are stored in a `Lambertian` object, which is a `Material` object that defines
+the transmittance and reflectance of the material for each waveband to be
+simulated (in this case three).
+
+Create a new material object with the optical properties
 =#
-# Create a new material object with the optical properties
 mat() = Lambertian(τ = (0.0, 0.0, 0.0), # transmittance for blue, green, red
                    ρ = (0.05, 0.2, 0.1)) # reflectance for blue, green, red
 
-# Create right side of the growth rule (parameterized by initial values of the organ)
+# Create right side of the growth rule (parameterized by initial values of the
+# organ)
 function create_branching_rule(biomass, length, width)
     mer -> begin
         # New branches
@@ -84,9 +86,10 @@ function create_branching_rule(biomass, length, width)
     end
 end
 
-# The creation of each individual tree also resembles the previous example
-
-# Create a tree given the origin and RUE
+#=
+The creation of each individual tree also resembles the previous example Create
+a tree given the origin and RUE
+=#
 function create_tree(origin, RUE)
     SIW    = 1e6 # g/m3 (typical wood density for a hardwood)
     length = 0.5 # m
@@ -100,8 +103,10 @@ function create_tree(origin, RUE)
     return tree
 end
 
-# We can now create a forest of trees on a regular grid with random RUE values:
-# Regular grid of trees 2 meters apart
+#=
+We can now create a forest of trees on a regular grid with random RUE values:
+Regular grid of trees 2 meters apart
+=#
 origins = [Vec(i,j,0) for i = 1:2.0:20.0, j = 1:2.0:20.0];
 Random.seed!(123456789)
 
@@ -117,15 +122,15 @@ forest = [create_tree(origins[i], RUEs[i]) for i in 1:100];
 As growth is now dependent on intercepted PAR via RUE, we now need to simulate
 light interception by the trees. We will use a ray-tracing approach to do so.
 The first step is to create a scene with the trees and the light sources. As for
-rendering, the scene can be created from the `forest` object by simply calling 
-`Scene(forest)` that will generate the 3D meshes and connect them to their 
+rendering, the scene can be created from the `forest` object by simply calling
+`Scene(forest)` that will generate the 3D meshes and connect them to their
 optical properties.
 
-However, we also want to add a soil surface as this will affect the light 
+However, we also want to add a soil surface as this will affect the light
 distribution within the scene due to reflection from the soil surface. This is
 similar to the customized scene that we created in the previous example. Note
 that the `soil_material` created below is stored in the scene but nowhere else.
-If we wanted to recover the irradiance absorbed by the soil tile later on, we 
+If we wanted to recover the irradiance absorbed by the soil tile later on, we
 would need to store this information somewhere else.
 =#
 function create_soil()
@@ -149,19 +154,20 @@ end
 #=
 Given the scene, we can create the light sources that can approximate the solar
 irradiance on a given day, location and time of the day using the functions from
-the Sky package (see package documentation for details). Given the latitude,
-day of year and fraction of the day (`f = 0` being sunrise and `f = 1` being sunset),
-the function `clear_sky()` computes the direct and diffuse solar radiation assuming
-a clear sky. These values may be converted to different wavebands and units using
-`waveband_conversion()`. Finally, the collection of light sources approximating
-the solar irradiance distribution over the sky hemisphere is constructed with the
-function `sky()` (this last step requires the 3D scene as input in order to place
-the light sources adequately).
+the Sky package (see package documentation for details). Given the latitude, day
+of year and fraction of the day (`f = 0` being sunrise and `f = 1` being
+sunset), the function `clear_sky()` computes the direct and diffuse solar
+radiation assuming a clear sky. These values may be converted to different
+wavebands and units using `waveband_conversion()`. Finally, the collection of
+light sources approximating the solar irradiance distribution over the sky
+hemisphere is constructed with the function `sky()` (this last step requires the
+3D scene as input in order to place the light sources adequately).
 =#
 function create_sky(;scene, f, lat = 52.0*π/180.0, DOY = 182)
     # Compute solar irradiance
     Ig, Idir, Idif = clear_sky(lat = lat, DOY = DOY, f = f) # W/m2
-    # Conversion factors to red, green and blue for direct and diffuse irradiance
+    # Conversion factors to red, green and blue for direct and diffuse
+    # irradiance
     wavebands = (:blue, :green, :red)
     f_dir = Tuple(waveband_conversion(Itype = :direct,  waveband = x, mode = :power) for x in wavebands)
     f_dif = Tuple(waveband_conversion(Itype = :diffuse, waveband = x, mode = :power) for x in wavebands)
@@ -183,22 +189,22 @@ end
 
 #=
 The 3D scene and the light sources are then combined into a `RayTracer` object,
-together with general settings for the ray tracing simulation chosen via `RTSettings()`.
-The most important settings refer to the Russian roulette system and the grid 
-cloner (see section on Ray Tracing for details). The settings for the Russian
-roulette system include the number of times a ray will be traced
-deterministically (`maxiter`) and the probability that a ray that exceeds `maxiter`
-is terminated (`pkill`). The grid cloner is used to approximate an infinite canopy
-by replicating the scene in the different directions (`nx` and `ny` being the
-number of replicates in each direction along the x and y axes, respectively). It
-is also possible to turn on parallelization of the ray tracing simulation by
-setting `parallel = true` (currently this uses Julia's builtin multithreading
-capabilities). 
+together with general settings for the ray tracing simulation chosen via
+`RTSettings()`. The most important settings refer to the Russian roulette system
+and the grid cloner (see section on Ray Tracing for details). The settings for
+the Russian roulette system include the number of times a ray will be traced
+deterministically (`maxiter`) and the probability that a ray that exceeds
+`maxiter` is terminated (`pkill`). The grid cloner is used to approximate an
+infinite canopy by replicating the scene in the different directions (`nx` and
+`ny` being the number of replicates in each direction along the x and y axes,
+respectively). It is also possible to turn on parallelization of the ray tracing
+simulation by setting `parallel = true` (currently this uses Julia's builtin
+multithreading capabilities). 
 
 In addition `RTSettings()`, an acceleration structure and a splitting rule can
-be defined when creating the `RayTracer` object (see ray tracing documentation 
-for details). The acceleration structure allows speeding up the ray tracing
-by avoiding testing all rays against all objects in the scene.
+be defined when creating the `RayTracer` object (see ray tracing documentation
+for details). The acceleration structure allows speeding up the ray tracing by
+avoiding testing all rays against all objects in the scene.
 =#
 function create_raytracer(scene, sources)
     settings = RTSettings(pkill = 0.9, maxiter = 4, nx = 5, ny = 5, parallel = true)
@@ -227,17 +233,18 @@ the `power()` function returns three different values, one for each waveband,
 but they are added together as RUE is defined for total PAR.
 
 In most cases the relationship between absorbed PAR and growth is not linear and
-thus the process needs to be integrated over the day. That is not case here since
-we use an RUE constant, however the general scenario is shown for generality. For
-more complex models (e.g., where photosynthesis is computed for each organ) the
-`calculate_PAR!` function below would be replaced by a function that computes
-photosynthesis for each organ and then adds up to the tree level.
+thus the process needs to be integrated over the day. That is not case here
+since we use an RUE constant, however the general scenario is shown for
+generality. For more complex models (e.g., where photosynthesis is computed for
+each organ) the `calculate_PAR!` function below would be replaced by a function
+that computes photosynthesis for each organ and then adds up to the tree level.
 =#
-
 getInternode = Query(rbtree.Internode)
 
-# Run the ray tracer, calculate PAR absorbed per tree and add it to the daily
-# total using general weighted quadrature formula
+#=
+Run the ray tracer, calculate PAR absorbed per tree and add it to the daily
+total using general weighted quadrature formula
+=#
 function calculate_PAR!(forest; f = 0.5, w = 1.0, dt = 1.0, DOY = 182)
     # Run the ray tracer
     run_raytracer!(forest, f = f, DOY = DOY)
@@ -317,7 +324,8 @@ function daily_step!(forest, DOY)
     end
 end
 
-# We can create a function for rendering the forest in combination with the soil:
+# We can create a function for rendering the forest in combination with the
+# soil:
 function render_forest(forest)
     # Plot the forest
     display(render(forest, axes = false))
@@ -327,7 +335,7 @@ function render_forest(forest)
 end
 
 #=
-We can now simulate and visualize the growth of the forest by calling the 
+We can now simulate and visualize the growth of the forest by calling the
 `daily_step!` function iteratively:  
 =#
 newforest = deepcopy(forest)
@@ -338,5 +346,3 @@ for i in 1:3
     daily_step!(newforest, start + i)
     render_forest(newforest)
 end
-
-
