@@ -26,7 +26,6 @@ may be positive or negative, whereas `A` nodes contain no data.
 As usual, we start with defining the types of nodes in the graph
 
 ```{julia}
-#| code-fold: false
 using VPL
 
 module Queries
@@ -51,7 +50,6 @@ nodes to the graph (i.e. `sum(A() for i in 1:3)` is equivalent to `A() + A() +
 A()`)
 
 ```{julia}
-#| code-fold: false
 motif(n, i = 0) = Q.A() + (Q.C(45.0) + Q.A() + (Q.C(45.0) +  Q.A() + Q.B(i + 1), 
                                            Q.C(-45.0) + Q.A() + Q.B(i + 2), 
                                                        Q.A() + Q.B(i + 3)), 
@@ -92,14 +90,12 @@ First, we create the query object. In this case, there is no special condition
 as we want to retrieve all the nodes of type `B`
 
 ```{julia}
-#| code-fold: false
 Q1 = Query(Q.B)
 ```
 
 Applying the query to the graph returns an array with all the `B` nodes
 
 ```{julia}
-#| code-fold: false
 A1 = apply(graph, Q1)
 ```
 
