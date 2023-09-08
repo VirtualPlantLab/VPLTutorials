@@ -1,30 +1,28 @@
-#= 
+#=
 Algae growth
 
-Alejandro Morales Sierra  
-Centre for Crop Systems Analysis - Wageningen University  
-16/03/2023
+Alejandro Morales - May 2023
 
 In this first example, we learn how to create a `Graph` and update it
-dynamically with rewriting rules. 
+dynamically with rewriting rules.
 
 The model described here is based on the non-branching model of [algae
 growth](https://en.wikipedia.org/wiki/L-system#Example_1:_Algae) proposed by
 Lindermayer as one of the first L-systems.
 
 First, we need to load the VPL metapackage, which will automatically load all
-the packages in the VPL ecosystem. 
+the packages in the VPL ecosystem.
 =#
-using VPL 
+using VPL
 
 #=
 The rewriting rules of the L-system are as follows:
 
-**axiom**:   A  
+**axiom**:   A
 
-**rule 1**:  A $\rightarrow$ AB  
+**rule 1**:  A $\rightarrow$ AB
 
-**rule 2**:  B $\rightarrow$ A  
+**rule 2**:  B $\rightarrow$ A
 
 In VPL, this L-system would be implemented as a graph where the nodes can be of
 type `A` or `B` and inherit from the abstract type `Node`. It is advised to
@@ -53,12 +51,12 @@ rewriting rule substitutes a node in a graph with a new node or subgraph and is
 therefore composed of two parts:
 
 1. A condition that is tested against each node in a graph to choose which nodes
-   to rewrite.  
-2. A subgraph that will replace each node selected by the condition above.  
+   to rewrite.
+2. A subgraph that will replace each node selected by the condition above.
 
 In VPL, the condition is split into two components:
 
-1. The type of node to be selected (in this example that would be `A` or `B`).  
+1. The type of node to be selected (in this example that would be `A` or `B`).
 2. A function that is applied to each node in the graph (of the specified type)
    to indicate whether the node should be selected or not. This function is
    optional (the default is to select every node of the specified type).
@@ -114,6 +112,7 @@ code is executed. By default, `draw()` will create a new window where an
 interactive version of the graph will be drawn and one can zoom and pan with the
 mouse.
 =#
+import GLMakie
 draw(organism)
 
 #=

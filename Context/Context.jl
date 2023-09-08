@@ -1,9 +1,9 @@
-#= 
+#=
 
 Context sensitive rules
-Alejandro Morales Sierra 
-Centre for Crop Systems Analysis - Wageningen University
-    
+
+Alejandro Morales - May 2023
+
 This examples goes back to a very simple situation: a linear sequence of 3
 cells. The point of this example is to introduce relational growth rules and
 context capturing.
@@ -39,7 +39,7 @@ module types
 end
 import .types: Cell
 function transfer(context)
-    if hasParent(context)
+    if has_parent(context)
         return (true, (parent(context), ))
     else
         return (false, ())
@@ -81,14 +81,13 @@ the `state` of each node in a vector (unlike Rules and Queries, this function
 takes the actual node as argument rather than a `Context` object, see the
 documentation for more details):
 =#
-
 pop  = Graph(axiom = axiom, rules = rule)
 states = Int64[]
-traverseDFS(pop, fun = node -> push!(states, node.state))
+traversedfs(pop, fun = node -> push!(states, node.state))
 states
 
 # Now the states of the nodes are in the same order as they were created:
 rewrite!(pop)
 states = Int64[]
-traverseDFS(pop, fun = node -> push!(states, node.state))
+traversedfs(pop, fun = node -> push!(states, node.state))
 states

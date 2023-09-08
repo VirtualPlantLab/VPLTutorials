@@ -1,6 +1,6 @@
 #=
-The Koch snowflake 
-Alejandro Morales Sierra 
+The Koch snowflake
+Alejandro Morales Sierra
 Centre for Crop Systems Analysis - Wageningen University
 
 In this example, we create a Koch snowflake, which is one of the earliest
@@ -29,7 +29,7 @@ by a graph.
 The construction process of the Koch snowflake in VPL could then be represented
 by the following axiom and rewriting rule:
 
-axiom: E(L) + RU(120) + E(L) + RU(120) + E(L)  
+axiom: E(L) + RU(120) + E(L) + RU(120) + E(L)
 rule:  E(L) → E(L/3) + RU(-60) + E(L/3) + RU(120) + E(L/3) + RU(-60) + E(L/3)
 
 Where E represent and edge of a given length (given in parenthesis) and RU
@@ -44,6 +44,8 @@ rotations, so our implementation of the Koch snowflake only needs to define a
 class to implement the edges of the snowflake. This can be achieved as follows:
 =#
 using VPL
+import GLMakie # Import rather than "using" to avoid masking Scene
+using ColorTypes # To define colors for the rendering
 module sn
     import VPL
     struct E <: VPL.Node
@@ -67,8 +69,8 @@ axiom = sn.E(L) + VPL.RU(120.0) + sn.E(L) + VPL.RU(120.0) + sn.E(L)
 function Kochsnowflake(x)
     L = data(x).length
     sn.E(L/3) + RU(-60.0) + sn.E(L/3) + RU(120.0) + sn.E(L/3) + RU(-60.0) + sn.E(L/3)
- end
- rule = Rule(sn.E, rhs = Kochsnowflake)
+end
+rule = Rule(sn.E, rhs = Kochsnowflake)
 
 # The model is then created by constructing the graph
 Koch = Graph(axiom = axiom, rules = Tuple(rule))
@@ -92,10 +94,10 @@ In order to render the geometry, we need assign a `color` (i.e., any type of
 color support by the package ColorTypes.jl). In this case, we just feed a basic
 `RGB` color defined by the proportion of red, green and blue. To make the
 figures more appealing, we can assign random values to each channel of the color
-to generate random colors. 
+to generate random colors.
 =#
 function VPL.feed!(turtle::Turtle, e::sn.E, vars)
-    HollowCylinder!(turtle, length = e.length, width = e.length/10, 
+    HollowCylinder!(turtle, length = e.length, width = e.length/10,
                     height = e.length/10, move = true,
                     color = RGB(rand(), rand(), rand()))
     return nothing
@@ -111,19 +113,20 @@ be accessed by any node). In this case, we are not using this argument.
 After defining the method, we can now call the function render on the graph to
 generate a 3D interactive image of the Koch snowflake in the current state
 =#
-render(Koch, axes = false)
+sc = Scene(Koch)
+render(sc, axes = false)
 
 #This renders the initial triangle of the construction procedure of the Koch
 #snowflake. Let's execute the rules once to verify that we get the 2nd iteration
 #(check the figure at the beginning of this document):
 rewrite!(Koch)
-render(Koch, axes = false)
+render(Scene(Koch), axes = false)
 
 # And two more times
 for i in 1:3
     rewrite!(Koch)
 end
-render(Koch, axes = false)
+render(Scene(Koch), axes = false)
 
 #=
 # Other snowflake fractals
@@ -133,8 +136,8 @@ snowflake. We will simply invert the rotations of the turtle in the rewriting
 rule
 =#
 function Kochsnowflake2(x)
-   L = data(x).length
-   sn.E(L/3) + RU(60.0) + sn.E(L/3) + RU(-120.0) + sn.E(L/3) + RU(60.0) + sn.E(L/3)
+    L = data(x).length
+    sn.E(L/3) + RU(60.0) + sn.E(L/3) + RU(-120.0) + sn.E(L/3) + RU(60.0) + sn.E(L/3)
 end
 rule2 = Rule(sn.E, rhs = Kochsnowflake2)
 Koch2 = Graph(axiom = axiom, rules = Tuple(rule2))
@@ -145,13 +148,13 @@ Koch2 = Graph(axiom = axiom, rules = Tuple(rule2))
 
 # First iteration
 rewrite!(Koch2)
-render(Koch2, axes = false)
+render(Scene(Koch2), axes = false)
 # Second iteration
 rewrite!(Koch2)
-render(Koch2, axes = false)
+render(Scene(Koch2), axes = false)
 # Third iteration
 rewrite!(Koch2)
-render(Koch2, axes = false)
+render(Scene(Koch2), axes = false)
 
 # This is know as [Koch
 # antisnowflake](https://mathworld.wolfram.com/KochAntisnowflake.html). We could
@@ -160,18 +163,18 @@ render(Koch2, axes = false)
 # the axiom:
 axiomCesaro = sn.E(L) + RU(90.0) + sn.E(L) + RU(90.0) + sn.E(L) + RU(90.0) + sn.E(L)
 Cesaro = Graph(axiom = axiomCesaro, rules = (rule2,))
-render(Cesaro, axes = false)
+render(Scene(Cesaro), axes = false)
 
 # And, as before, let's go through the first three iterations
 
 # First iteration
 rewrite!(Cesaro)
-render(Cesaro, axes = false)
+render(Scene(Cesaro), axes = false)
 
 # Second iteration
 rewrite!(Cesaro)
-render(Cesaro, axes = false)
+render(Scene(Cesaro), axes = false)
 
 # Third iteration
 rewrite!(Cesaro)
-render(Cesaro, axes = false)
+render(Scene(Cesaro), axes = false)

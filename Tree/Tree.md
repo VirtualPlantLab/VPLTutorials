@@ -6,11 +6,11 @@ In this example we build a 3D representation of a binary TreeTypes. Although thi
 
 The model requires five types of nodes:
 
-*Meristem*: These are the nodes responsible for growth of new organs in our binary TreeTypes. They contain no data or geometry (i.e. they are a point in the 3D structure).  
+*Meristem*: These are the nodes responsible for growth of new organs in our binary TreeTypes. They contain no data or geometry (i.e. they are a point in the 3D structure).
 
 *Internode*: The result of growth of a branch, between two nodes. Internodes are represented by cylinders with a fixed width but variable length.
 
-*Node*: What is left after a meristem produces a new organ (it separates internodes). They contain no data or geometry (so also a point) but are required to keep the branching structure of the tree as well as connecting leaves. 
+*Node*: What is left after a meristem produces a new organ (it separates internodes). They contain no data or geometry (so also a point) but are required to keep the branching structure of the tree as well as connecting leaves.
 
 *Bud*: These are dormant meristems associated to tree nodes. When they are activated, they become an active meristem that produces a branch. They contain no data or geometry but they change the orientation of the turtle.
 
@@ -24,6 +24,8 @@ In order to simulate growth of the 3D binary tree, we need to define a parameter
 
 ```julia
 using VPL
+using ColorTypes
+import GLMakie
 
 module TreeTypes
     import VPL
@@ -43,10 +45,10 @@ module TreeTypes
     Base.@kwdef struct Leaf <: VPL.Node
         length::Float64 = 0.20 # Leaves are 20 cm long
         width::Float64  = 0.1 # Leaves are 10 cm wide
-    end    
+    end
     # Graph-level variables
     Base.@kwdef struct treeparams
-        growth::Float64 = 0.1   
+        growth::Float64 = 0.1
         budbreak::Float64 = 0.25
         phyllotaxis::Float64 = 140.0
         leaf_angle::Float64 = 30.0
@@ -61,8 +63,8 @@ As always, the 3D structure and the color of each type of node are implemented w
 # Create geometry + color for the internodes
 function VPL.feed!(turtle::Turtle, i::TreeTypes.Internode, vars)
     # Rotate turtle around the head to implement elliptical phyllotaxis
-    rh!(turtle, vars.phyllotaxis) 
-    HollowCylinder!(turtle, length = i.length, height = i.length/15, width = i.length/15, 
+    rh!(turtle, vars.phyllotaxis)
+    HollowCylinder!(turtle, length = i.length, height = i.length/15, width = i.length/15,
                 move = true, color = RGB(0.5,0.4,0.0))
     return nothing
 end
@@ -71,8 +73,8 @@ end
 function VPL.feed!(turtle::Turtle, l::TreeTypes.Leaf, vars)
     # Rotate turtle around the arm for insertion angle
     ra!(turtle, -vars.leaf_angle)
-    # Generate the leaf 
-    Ellipse!(turtle, length = l.length, width = l.width, move = false, 
+    # Generate the leaf
+    Ellipse!(turtle, length = l.length, width = l.width, move = false,
              color = RGB(0.2,0.6,0.2))
     # Rotate turtle back to original direction
     ra!(turtle, vars.leaf_angle)
@@ -89,7 +91,7 @@ end
 The growth rule for a branch within a tree is simple: a phytomer (or basic unit of morphology) is composed of a node, a leaf, a bud node, an internode and an active meristem at the end. Each time step, the meristem is replaced by a new phytomer, allowing for developmemnt within a branch.
 
 ```julia
-meristem_rule = Rule(TreeTypes.Meristem, rhs = mer -> TreeTypes.Node() + 
+meristem_rule = Rule(TreeTypes.Meristem, rhs = mer -> TreeTypes.Node() +
                                               (TreeTypes.Bud(), TreeTypes.Leaf()) +
                                          TreeTypes.Internode() + TreeTypes.Meristem())
 ```
@@ -100,21 +102,22 @@ In addition, every step of the simulation, each bud may break, creating a new br
 function prob_break(bud)
     # We move to parent node in the branch where the bud was created
     node =  parent(bud)
-    # We count the number of internodes between node and the first Meristem 
+    # We count the number of internodes between node and the first Meristem
     # moving down the graph
-    check, steps = hasDescendent(node, condition = n -> data(n) isa TreeTypes.Meristem)
+    check, steps = hasdescendant(node, condition = n -> data(n) isa TreeTypes.Meristem)
     steps = Int(ceil(steps/2)) # Because it will count both the nodes and the internodes
     # Compute probability of bud break and determine whether it happens
     if check
-        prob =  min(1.0, steps*vars(bud).budbreak)
+        prob =  min(1.0, steps*graph_data(bud).budbreak)
         return rand() < prob
-    # If there is no meristem, an error happened since the model does not allow for this    
+    # If there is no meristem, an error happened since the model does not allow
+    # for this
     else
         error("No meristem found in branch")
     end
 end
-branch_rule = Rule(TreeTypes.Bud, 
-            lhs = prob_break, 
+branch_rule = Rule(TreeTypes.Bud,
+            lhs = prob_break,
             rhs = bud -> TreeTypes.BudNode() + TreeTypes.Internode() + TreeTypes.Meristem())
 ```
 
@@ -128,7 +131,7 @@ axiom = TreeTypes.Internode() + TreeTypes.Meristem()
 And the object for the tree can be constructed as in previous examples, by passing the axiom and the graph rewriting rules, but in this case also with the object with growth-related parameters.
 
 ```julia
-tree = Graph(axiom = axiom, rules = (meristem_rule, branch_rule), vars = TreeTypes.treeparams())
+tree = Graph(axiom = axiom, rules = (meristem_rule, branch_rule), data = TreeTypes.treeparams())
 ```
 
 Note that so far we have not included any code to simulate growth of the internodes. The reason is that, as elongation of internotes does not change the topology of the graph (it simply changes the data stored in certain nodes), this process does not need to be implemented with graph rewriting rules. Instead, we will use a combination of a query (to identify which nodes need to be altered) and direct modification of these nodes:
@@ -142,7 +145,7 @@ If we apply the query to a graph using the `apply` function, we will get an arra
 ```julia
 function elongate!(tree, query)
     for x in apply(tree, query)
-        x.length = x.length*(1.0 + vars(tree).growth)
+        x.length = x.length*(1.0 + data(tree).growth)
     end
 end
 ```
@@ -179,12 +182,12 @@ newtree = simulate(tree, getInternode, 2)
 The binary tree after two iterations has two branches, as expected:
 
 ```julia
-render(newtree)
+render(Scene(newtree))
 ```
 
 Notice how the lengths of the prisms representing internodes decreases as the branching order increases, as the internodes are younger (i.e. were generated fewer generations ago). Further steps will generate a structure that is more tree-like.
 
 ```julia
 newtree = simulate(newtree, getInternode, 15)
-render(newtree)
+render(Scene(newtree))
 ```

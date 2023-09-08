@@ -1,5 +1,5 @@
 #=
-Relational queries 
+Relational queries
 Alejandro Morales Sierra
 Centre for Crop Systems Analysis - Wageningen University
 
@@ -27,6 +27,7 @@ may be positive or negative, whereas `A` nodes contain no data.
 As usual, we start with defining the types of nodes in the graph
 =#
 using VPL
+import GLMakie
 
 module Queries
     using VPL
@@ -49,9 +50,9 @@ the graph in a piecewise manner. Note how we can use the function `sum` to add
 nodes to the graph (i.e. `sum(A() for i in 1:3)` is equivalent to `A() + A() +
 A()`)
 =#
-motif(n, i = 0) = Q.A() + (Q.C(45.0) + Q.A() + (Q.C(45.0) +  Q.A() + Q.B(i + 1), 
-                                           Q.C(-45.0) + Q.A() + Q.B(i + 2), 
-                                                       Q.A() + Q.B(i + 3)), 
+motif(n, i = 0) = Q.A() + (Q.C(45.0) + Q.A() + (Q.C(45.0) +  Q.A() + Q.B(i + 1),
+                                           Q.C(-45.0) + Q.A() + Q.B(i + 2),
+                                                       Q.A() + Q.B(i + 3)),
                          Q.C(- 45.0) + sum(Q.A() for i in 1:n) + Q.B(i + 4))
 axiom =  motif(3, 0) + motif(2, 4) + motif(1, 8) + Q.A() + Q.A() + Q.B(13)
 graph = Graph(axiom = axiom);
@@ -101,7 +102,7 @@ Since the `B` node 13 is the leaf node of the main branch of the graph (e.g.
 this could be the apical meristem of the main stem of a plant), there are no
 rotations between the root node of the graph and this node. Therefore, the only
 condition require to single out this node is that it has no ancestor node of
-type `C`. 
+type `C`.
 
 Checking whether a node has an ancestor that meets a certain condition can be
 achieved with the function `hasAncestor()`. Similarly to the condition of the
@@ -113,7 +114,7 @@ then we can test if that object is of type `C`. The `B` node 13 is the only node
 for which `hasAncestor()` should return `false`:
 =#
 function Q2_fun(n)
-    check, steps = hasAncestor(n, condition = x -> data(x) isa Q.C)
+    check, steps = has_ancestor(n, condition = x -> data(x) isa Q.C)
     !check
 end
 
@@ -122,7 +123,7 @@ Q2 = Query(Q.B, condition = Q2_fun)
 A2 = apply(graph, Q2)
 
 #=
-## Nodes containing values 1, 2 and 3  
+## Nodes containing values 1, 2 and 3
 
 These three nodes belong to one of the branch motifs repeated through the graph.
 Thus, we need to identify the specific motif they belong to and chose all the
@@ -135,18 +136,18 @@ motif (i.e., the `A` node described in the above) and then check the distance of
 that node from the root:
 =#
 function branch_motif(p)
-    data(p) isa Q.A && 
-    hasDescendent(p, condition = x -> data(x) isa Q.C && data(x).val < 0.0) &&
-    hasAncestor(p, condition = x -> data(x) isa Q.C && data(x).val > 0.0)[1]
+    data(p) isa Q.A &&
+    hasdescendant(p, condition = x -> data(x) isa Q.C && data(x).val < 0.0)[1] &&
+    has_ancestor(p, condition = x -> data(x) isa Q.C && data(x).val > 0.0)[1]
 end
 
 function Q3_fun(n, nsteps)
     # Condition 1
-    check, steps = hasAncestor(n, condition = branch_motif)
+    check, steps = has_ancestor(n, condition = branch_motif)
     !check && return false
     # Condition 2
     p = parent(n, nsteps = steps)
-    check, steps = hasAncestor(p, condition = isRoot)
+    check, steps = has_ancestor(p, condition = isroot)
     steps != nsteps && return false
     return true
 end
@@ -156,7 +157,7 @@ Q3 = Query(Q.B, condition = n -> Q3_fun(n, 2))
 A3 = apply(graph, Q3)
 
 #=
-## Node containing value 4   
+## Node containing value 4
 
 The node `B` with value 4 can be singled-out because there is no branching point
 between the root node and this node. This means that no ancestor node should
@@ -166,7 +167,7 @@ value. You do not need to assign the returned object from a Julia function, you
 can just index directly the element to be selected from the returned tuple:
 =#
 function Q4_fun(n)
-    !hasAncestor(n, condition = x -> !isRoot(x) && length(children(x)) > 1)[1]
+    !has_ancestor(n, condition = x -> isroot(x) && length(children(x)) > 1)[1]
 end
 
 # And applying the query to the object results in the required node:
@@ -174,13 +175,13 @@ Q4 = Query(Q.B, condition = Q4_fun)
 A4 = apply(graph, Q4)
 
 #=
-## Node containing value 3  
+## Node containing value 3
 
 This node is the only `B` node that is four steps from the root node, which we
 can retrieve from the second argument returned by `hasAncestor()`:
 =#
 function Q5_fun(n)
-    check, steps = hasAncestor(n, condition = isRoot)
+    check, steps = has_ancestor(n, condition = isroot)
     steps == 4
 end
 
@@ -188,7 +189,7 @@ Q5 = Query(Q.B, condition = Q5_fun)
 A5 = apply(graph, Q5)
 
 #=
-## Node containing value 7  
+## Node containing value 7
 
 Node `B` 7 belongs to the second lateral branch motif and the second parent node
 is of type `A`. Note that we can reuse the `Q3_fun` from before in the condition
@@ -205,7 +206,7 @@ Q6 = Query(Q.B, condition = n -> Q6_fun(n, 3))
 A6 = apply(graph, Q6)
 
 #=
-## Nodes containing values 11 and 13  
+## Nodes containing values 11 and 13
 
 The `B` nodes 11 and 13 actually have different relationships to the rest of the
 graph, so we just need to define two different condition functions and combine
@@ -217,7 +218,7 @@ Q7 = Query(Q.B, condition = n -> Q6_fun(n, 4) || Q2_fun(n))
 A7 = apply(graph, Q7)
 
 #=
-## Nodes containing values 1, 5 and 9  
+## Nodes containing values 1, 5 and 9
 
 These nodes play the same role in the three lateral branch motifs. They are the
 only `B` nodes preceded by the sequence A C+ A. We just need to check the
@@ -234,7 +235,7 @@ Q8 = Query(Q.B, condition = Q8_fun)
 A8 = apply(graph, Q8)
 
 #=
-## Nodes contaning values 2, 6 and 10  
+## Nodes containing values 2, 6 and 10
 
 This exercise is similar to the previous one, but the C node has a negative
 `val`. The problem is that node 12 would also match the pattern A C- A. We can
@@ -246,7 +247,7 @@ function Q9_fun(n)
     p2 = parent(n, nsteps = 2)
     p3 = parent(n, nsteps = 3)
     p4 = parent(n, nsteps = 4)
-    data(p1) isa Q.A && data(p2) isa Q.C && data(p2).val < 0.0 && 
+    data(p1) isa Q.A && data(p2) isa Q.C && data(p2).val < 0.0 &&
        data(p3) isa Q.A && data(p4) isa Q.C
 end
 
@@ -254,7 +255,7 @@ Q9 = Query(Q.B, condition = Q9_fun)
 A9 = apply(graph, Q9)
 
 #=
-## Nodes containg values 6, 7 and 8  
+## Nodes containing values 6, 7 and 8
 
 We already came up with a condition to extract node 7. We can also modify the
 previous condition so that it only node 6.  Node 8 can be identified by checking
@@ -266,15 +267,15 @@ functions:
 =#
 function Q10_fun(n)
     Q6_fun(n, 3) && return true # Check node 7
-    Q9_fun(n) && hasAncestor(n, condition = isRoot)[2] == 6 && return true # Check node 6
-    hasAncestor(n, condition = isRoot)[2] == 5 && data(parent(n, nsteps = 3)) isa Q.C && return true # Check node 8 (and not 4!)
+    Q9_fun(n) && has_ancestor(n, condition = isroot)[2] == 6 && return true # Check node 6
+    has_ancestor(n, condition = isroot)[2] == 5 && data(parent(n, nsteps = 3)) isa Q.C && return true # Check node 8 (and not 4!)
 end
 
 Q10 = Query(Q.B, condition = Q10_fun)
 A10 = apply(graph, Q10)
 
 #=
-## Nodes containig values 3, 7, 11 and 12  
+## Nodes containig values 3, 7, 11 and 12
 
 We already have conditions to select nodes 3, 7 and 11 so we just need a new
 condition for node 12 (similar to the condition for 8).
@@ -283,7 +284,7 @@ function Q11_fun(n)
     Q5_fun(n) && return true # 3
     Q6_fun(n, 3) && return true # 7
     Q6_fun(n, 4) && return true # 11
-    hasAncestor(n, condition = isRoot)[2] == 5 && data(parent(n, nsteps = 2)) isa Q.C && 
+    has_ancestor(n, condition = isroot)[2] == 5 && data(parent(n, nsteps = 2)) isa Q.C &&
         data(parent(n, nsteps = 4)) isa Q.A && return true # 12
 end
 
@@ -291,13 +292,13 @@ Q11 = Query(Q.B, condition = Q11_fun)
 A11 = apply(graph, Q11)
 
 #=
-## Nodes containing values 7 and 12 
+## Nodes containing values 7 and 12
 
 We just need to combine the conditions for the nodes 7 and 12
 =#
 function Q12_fun(n)
     Q6_fun(n, 3) && return true # 7
-    hasAncestor(n, condition = isRoot)[2] == 5 && data(parent(n, nsteps = 2)) isa Q.C && 
+    has_ancestor(n, condition = isroot)[2] == 5 && data(parent(n, nsteps = 2)) isa Q.C &&
         data(parent(n, nsteps = 4)) isa Q.A && return true # 12
 end
 

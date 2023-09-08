@@ -8,13 +8,13 @@ In this example we extend the binary forest example to have more complex, time-
 dependent development and growth based on carbon allocation. For simplicity, the
 model assumes a constant relative growth rate at the plant level to compute the
 biomass increment. In the next example this assumption is relaxed by a model of
-radiation use efficiency. When modelling growth from carbon allocation, the 
+radiation use efficiency. When modelling growth from carbon allocation, the
 biomass of each organ is then translated in to an area or volume and the
-dimensions of the organs are updated accordingly (assuming a particular shape). 
+dimensions of the organs are updated accordingly (assuming a particular shape).
 
 The following packages are needed:
 =#
-using VPL
+using VPL, ColorTypes
 using Base.Threads: @threads
 using Plots
 import Random
@@ -40,7 +40,7 @@ module TreeTypes
     using VPL
     using Distributions
     # Meristem
-    Base.@kwdef mutable struct Meristem <: VPL.Node 
+    Base.@kwdef mutable struct Meristem <: VPL.Node
         age::Int64 = 0   # Age of the meristem
     end
     # Bud
@@ -64,7 +64,7 @@ module TreeTypes
         length::Float64 = 0.0  # Leaves
         width::Float64 = 0.0   # Leaves
         sink::Beta{Float64} = Beta(2,5)
-    end    
+    end
     # Graph-level variables -> mutable because we need to modify them during growth
     Base.@kwdef mutable struct treeparams
         # Variables
@@ -77,8 +77,8 @@ module TreeTypes
         LB0::Float64 = 1e-3  # Initial biomass of a leaf
         SLW::Float64 = 100.0 # Specific leaf weight (g/m2)
         LS::Float64  = 3.0   # Leaf shape parameter (length/width)
-        budbreak::Float64 = 1/0.5 # Bud break probability coefficient (in 1/m) 
-        plastochron::Int64 = 5 # Number of days between phytomer production 
+        budbreak::Float64 = 1/0.5 # Bud break probability coefficient (in 1/m)
+        plastochron::Int64 = 5 # Number of days between phytomer production
         leaf_expansion::Float64 = 15.0 # Number of days that a leaf expands
         phyllotaxis::Float64 = 140.0
         leaf_angle::Float64 = 30.0
@@ -97,8 +97,8 @@ the previous example.
 # Create geometry + color for the internodes
 function VPL.feed!(turtle::Turtle, i::TreeTypes.Internode, vars)
     # Rotate turtle around the head to implement elliptical phyllotaxis
-    rh!(turtle, vars.phyllotaxis) 
-    HollowCylinder!(turtle, length = i.length, height = i.width, width = i.width, 
+    rh!(turtle, vars.phyllotaxis)
+    HollowCylinder!(turtle, length = i.length, height = i.width, width = i.width,
                 move = true, color = RGB(0.5,0.4,0.0))
     return nothing
 end
@@ -107,8 +107,8 @@ end
 function VPL.feed!(turtle::Turtle, l::TreeTypes.Leaf, vars)
     # Rotate turtle around the arm for insertion angle
     ra!(turtle, -vars.leaf_angle)
-    # Generate the leaf 
-    Ellipse!(turtle, length = l.length, width = l.width, move = false, 
+    # Generate the leaf
+    Ellipse!(turtle, length = l.length, width = l.width, move = false,
              color = RGB(0.2,0.6,0.2))
     # Rotate turtle back to original direction
     ra!(turtle, vars.leaf_angle)
@@ -130,16 +130,16 @@ internodes and will only be triggered every X days where X is the plastochron.
 # Create right side of the growth rule (parameterized by the initial states
 # of the leaves and internodes)
 function create_meristem_rule(vleaf, vint)
-    meristem_rule = Rule(TreeTypes.Meristem, 
-                        lhs = mer -> mod(data(mer).age, vars(mer).plastochron) == 0,
-                        rhs = mer -> TreeTypes.Node() + 
-                                     (TreeTypes.Bud(), 
-                                     TreeTypes.Leaf(biomass = vleaf.biomass, 
+    meristem_rule = Rule(TreeTypes.Meristem,
+                        lhs = mer -> mod(data(mer).age, graph_data(mer).plastochron) == 0,
+                        rhs = mer -> TreeTypes.Node() +
+                                     (TreeTypes.Bud(),
+                                     TreeTypes.Leaf(biomass = vleaf.biomass,
                                                     length  = vleaf.length,
                                                     width   = vleaf.width)) +
-                                     TreeTypes.Internode(biomass = vint.biomass, 
+                                     TreeTypes.Internode(biomass = vint.biomass,
                                                          length  = vint.length,
-                                                         width   = vint.width) + 
+                                                         width   = vint.width) +
                                      TreeTypes.Meristem())
 end
 
@@ -163,7 +163,7 @@ function prob_break(bud)
             distance += data_child.length
             child = children(child)[1]
             data_child = data(child)
-        # If we encounter a node, extract the next internode    
+        # If we encounter a node, extract the next internode
         elseif data_child isa TreeTypes.Node
                 child = filter(x -> data(x) isa TreeTypes.Internode, children(child))[1]
                 data_child = data(child)
@@ -171,18 +171,18 @@ function prob_break(bud)
             error("Should be Internode, Node or Meristem")
         end
     end
-    # Compute the probability of bud break as function of distance and 
+    # Compute the probability of bud break as function of distance and
     # make stochastic decision
-    prob =  min(1.0, distance*vars(bud).budbreak)
+    prob =  min(1.0, distance*graph_data(bud).budbreak)
     return rand() < prob
 end
 
 # Branch rule parameterized by initial states of internodes
 function create_branch_rule(vint)
-    branch_rule = Rule(TreeTypes.Bud, 
-            lhs = prob_break, 
-            rhs = bud -> TreeTypes.BudNode() + 
-                         TreeTypes.Internode(biomass = vint.biomass, 
+    branch_rule = Rule(TreeTypes.Bud,
+            lhs = prob_break,
+            rhs = bud -> TreeTypes.BudNode() +
+                         TreeTypes.Internode(biomass = vint.biomass,
                                              length  = vint.length,
                                              width   = vint.width) +
                          TreeTypes.Meristem())
@@ -191,7 +191,7 @@ end
 #=
 ### Growth
 
-We need some functions to compute the length and width of a leaf or internode 
+We need some functions to compute the length and width of a leaf or internode
 from its biomass
 =#
 function leaf_dims(biomass, vars)
@@ -217,16 +217,16 @@ their relative sink strength (of leaves or internodes).
 
 The sink strength of leaves is modelled with a beta distribution scaled to the
 `leaf_expansion` argument that determines the duration of leaf growth, whereas
-for the internodes it follows a negative exponential distribution. The `pdf` 
-function computes the probability density of each distribution which is taken as 
-proportional to the sink strength (the model is actually source-limited since we 
+for the internodes it follows a negative exponential distribution. The `pdf`
+function computes the probability density of each distribution which is taken as
+proportional to the sink strength (the model is actually source-limited since we
 imposed a particular growth rate).
 =#
-sink_strength(leaf, vars) = leaf.age > vars.leaf_expansion ? 0.0 :  
+sink_strength(leaf, vars) = leaf.age > vars.leaf_expansion ? 0.0 :
                             pdf(leaf.sink, leaf.age/vars.leaf_expansion)/100.0
-plot(0:1:50, x -> sink_strength(TreeTypes.Leaf(age = x), TreeTypes.treeparams()), 
+plot(0:1:50, x -> sink_strength(TreeTypes.Leaf(age = x), TreeTypes.treeparams()),
      xlabel = "Age", ylabel = "Sink strength", label = "Leaf")
-     
+
 sink_strength(int) = pdf(int.sink, int.age)
 plot!(0:1:50, x -> sink_strength(TreeTypes.Internode(age = x)), label = "Internode")
 
@@ -261,7 +261,7 @@ strength.
 =#
 function grow!(tree, all_leaves, all_internodes)
     # Compute total biomass increment
-    tvars = vars(tree)
+    tvars = data(tree)
     ΔB    = tvars.RGR*tvars.biomass
     tvars.biomass += ΔB
     # Total sink strength
@@ -316,7 +316,7 @@ function daily_step!(forest)
         age!(all_leaves, all_internodes, all_meristems)
         # Grow the tree
         grow!(tree, all_leaves, all_internodes)
-        tvars = vars(tree)
+        tvars = data(tree)
         size_leaves!(all_leaves, tvars)
         size_internodes!(all_internodes, tvars)
         # Developmental rules
@@ -358,8 +358,8 @@ function create_tree(origin, orientation, RGR)
                              length  = vint.length,
                              width   = vint.width) +
             TreeTypes.Meristem()
-    tree = Graph(axiom = axiom, rules = (meristem_rule, branch_rule), 
-                 vars = vars)
+    tree = Graph(axiom = axiom, rules = (meristem_rule, branch_rule),
+                 data = vars)
     return tree
 end
 
@@ -368,11 +368,11 @@ end
 
 As in the previous example, it makes sense to visualize the forest with a soil
 tile beneath it. Unlike in the previous example, we will construct the soil tile
-using a dedicated graph and generate a `Scene` object which can later be 
+using a dedicated graph and generate a `Scene` object which can later be
 merged with the rest of scene generated in daily step:
 =#
 Base.@kwdef struct Soil <: VPL.Node
-    length::Float64 
+    length::Float64
     width::Float64
 end
 function VPL.feed!(turtle::Turtle, s::Soil, vars)

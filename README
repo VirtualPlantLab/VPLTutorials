@@ -1,16 +1,13 @@
 # VPLTutorials
 
 Collection of tutorials for [VPL](virtualplantlab.com). Each tutorial is given
-in three different formats:
+in two different formats:
 
 - As a Julia source file (`.jl`) with documentation as comments.
-
-- As a Jupyter notebook (`.ipynb`). This requires the [IJulia.jl](https://github.com/JuliaLang/IJulia.jl) package.
 
 - As a markdown file (`.md`). VS Code may be used to render it but also execute the code in each cell if the Julia extension is installed.
 
 In addition to VPL, the tutorials some of the require the following packages:
 
-- [Sky.jl](https://github.com/AleMorales/Sky.jl)  
-- [Ecophys.jl](https://github.com/AleMorales/Ecophys.jl)  
-
+- [Sky.jl](https://github.com/VirtualPlantLab/Sky.jl)
+- [Ecophys.jl](https://github.com/VirtualPlantLab/Ecophys.jl)
