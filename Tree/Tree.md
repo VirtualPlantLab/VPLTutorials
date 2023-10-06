@@ -1,6 +1,9 @@
 # Tree
-Alejandro Morales Sierra
+
+Alejandro Morales
+
 Centre for Crop Systems Analysis - Wageningen University
+
 
 In this example we build a 3D representation of a binary TreeTypes. Although this will not look like a real plant, this example will help introduce additional features of VPL.
 
@@ -23,26 +26,26 @@ In this first simple model, only internodes grow over time according to a relati
 In order to simulate growth of the 3D binary tree, we need to define a parameter describing the relative rate at which each internode elongates in each iteration of the simulation, a coefficient to compute the probability of bud break as well as the insertion and orientation angles of the leaves. We could stored these values as global constants, but VPL offers to opportunity to store them per plant. This makes it easier to manage multiple plants in the same simulation that may belong to different species, cultivars, ecotypes or simply to simulate plant-to-plant variation. Graphs in VPL can store an object of any user-defined type that will me made accessible to graph rewriting rules and queries. For this example, we define a data type `treeparams` that holds the relevant parameters. We use `Base.@kwdef` to assign default values to all parameters and allow to assign them by name.
 
 ```julia
-using VPL
+using VirtualPlantLab
 using ColorTypes
 import GLMakie
 
 module TreeTypes
-    import VPL
+    import VirtualPlantLab
     # Meristem
-    struct Meristem <: VPL.Node end
+    struct Meristem <: VirtualPlantLab.Node end
     # Bud
-    struct Bud <: VPL.Node end
+    struct Bud <: VirtualPlantLab.Node end
     # Node
-    struct Node <: VPL.Node end
+    struct Node <: VirtualPlantLab.Node end
     # BudNode
-    struct BudNode <: VPL.Node end
+    struct BudNode <: VirtualPlantLab.Node end
     # Internode (needs to be mutable to allow for changes over time)
-    Base.@kwdef mutable struct Internode <: VPL.Node
+    Base.@kwdef mutable struct Internode <: VirtualPlantLab.Node
         length::Float64 = 0.10 # Internodes start at 10 cm
     end
     # Leaf
-    Base.@kwdef struct Leaf <: VPL.Node
+    Base.@kwdef struct Leaf <: VirtualPlantLab.Node
         length::Float64 = 0.20 # Leaves are 20 cm long
         width::Float64  = 0.1 # Leaves are 10 cm wide
     end
@@ -61,7 +64,7 @@ As always, the 3D structure and the color of each type of node are implemented w
 
 ```julia
 # Create geometry + color for the internodes
-function VPL.feed!(turtle::Turtle, i::TreeTypes.Internode, vars)
+function VirtualPlantLab.feed!(turtle::Turtle, i::TreeTypes.Internode, vars)
     # Rotate turtle around the head to implement elliptical phyllotaxis
     rh!(turtle, vars.phyllotaxis)
     HollowCylinder!(turtle, length = i.length, height = i.length/15, width = i.length/15,
@@ -70,7 +73,7 @@ function VPL.feed!(turtle::Turtle, i::TreeTypes.Internode, vars)
 end
 
 # Create geometry + color for the leaves
-function VPL.feed!(turtle::Turtle, l::TreeTypes.Leaf, vars)
+function VirtualPlantLab.feed!(turtle::Turtle, l::TreeTypes.Leaf, vars)
     # Rotate turtle around the arm for insertion angle
     ra!(turtle, -vars.leaf_angle)
     # Generate the leaf
@@ -82,7 +85,7 @@ function VPL.feed!(turtle::Turtle, l::TreeTypes.Leaf, vars)
 end
 
 # Insertion angle for the bud nodes
-function VPL.feed!(turtle::Turtle, b::TreeTypes.BudNode, vars)
+function VirtualPlantLab.feed!(turtle::Turtle, b::TreeTypes.BudNode, vars)
     # Rotate turtle around the arm for insertion angle
     ra!(turtle, -vars.branch_angle)
 end
@@ -104,7 +107,7 @@ function prob_break(bud)
     node =  parent(bud)
     # We count the number of internodes between node and the first Meristem
     # moving down the graph
-    check, steps = hasdescendant(node, condition = n -> data(n) isa TreeTypes.Meristem)
+    check, steps = has_descendant(node, condition = n -> data(n) isa TreeTypes.Meristem)
     steps = Int(ceil(steps/2)) # Because it will count both the nodes and the internodes
     # Compute probability of bud break and determine whether it happens
     if check

@@ -1,7 +1,9 @@
 
 # Context sensitive rules
 
-Alejandro Morales - May 2023
+Alejandro Morales
+
+Centre for Crop Systems Analysis - Wageningen University
 
 This examples goes back to a very simple situation: a linear sequence of 3
 cells. The point of this example is to introduce relational growth rules and
@@ -30,9 +32,9 @@ argument, which corresponds to the context of the father node captured in the
 lhs.
 
 ```julia
-using VPL
+using VirtualPlantLab
 module types
-    using VPL
+    using VirtualPlantLab
     struct Cell <: Node
         state::Int64
     end
@@ -82,7 +84,7 @@ because of how they are internally stored (and because queries are meant to
 return collection of nodes rather than reconstruct the topology of a graph). If
 we need to process nodes in a particular order, then it is best to use a
 traversal algorithm on the graph that follows a particular order (for example
-depth-first traversal with `traverseDFS()`). This algorithm requires a function
+depth-first traversal with `traverse_dfs()`). This algorithm requires a function
 that applies to each node in the graph. In this simple example we can just store
 the `state` of each node in a vector (unlike Rules and Queries, this function
 takes the actual node as argument rather than a `Context` object, see the
@@ -91,7 +93,7 @@ documentation for more details):
 ```julia
 pop  = Graph(axiom = axiom, rules = rule)
 states = Int64[]
-traversedfs(pop, fun = node -> push!(states, node.state))
+traverse_dfs(pop, fun = node -> push!(states, node.state))
 states
 ```
 
@@ -100,6 +102,6 @@ Now the states of the nodes are in the same order as they were created:
 ```julia
 rewrite!(pop)
 states = Int64[]
-traversedfs(pop, fun = node -> push!(states, node.state))
+traverse_dfs(pop, fun = node -> push!(states, node.state))
 states
 ```

@@ -1,328 +1,588 @@
-# Relational queries
+# Ray-traced forest
 
-Alejandro Morales - May 2023
+Alejandro Morales
 
-In this example we illustrate how to test relationships among nodes inside queries.
-Relational queries allow to establish relationships between nodes in the graph,
-which generally requires a intimiate knowledge of the graph. For this reason,
-relational queries are inheretly complex as graphs can become complex and there
-may be solutions that do not require relational queries in many instances.
-Nevertheless, they are integral part of VPL and can sometimes be useful. As they
-can be hard to grasp, this tutorial will illustrate with a relatively simple
-graph a series of relational queries with increasing complexity with the aim
-that users will get a better understanding of relational queries. For this purpose,
-an abstract graph with several branching levels will be used, so that we can focus
-on the relations among the nodes without being distracted by case-specific details.
+Centre for Crop Systems Analysis - Wageningen University
 
-The graph will be composed of two types of nodes: the inner nodes (`A` and `C`) and the
-leaf nodes (`B`). Each leaf node will be identified uniquely with an index and
-the objective is to write queries that can identify a specific subset of the leaf
-nodes, without using the data stored in the nodes themselves. That is, the queries
-should select the right nodes based on their relationships to the rest of nodes
-in the graph. Note that `C` nodes contain a single value that may be positive or negative,
-whereas `A` nodes contain no data.
 
-As usual, we start with defining the types of nodes in the graph
+In this example we extend the forest growth model to include PAR interception a
+radiation use efficiency to compute the daily growth rate.
+
+The following packages are needed:
 
 ```julia
-#| code-fold: false
-using VPL
+using VirtualPlantLab, ColorTypes
 import GLMakie
+using Base.Threads: @threads
+using Plots
+import Random
+using FastGaussQuadrature
+using Distributions
+using SkyDomes
+Random.seed!(123456789)
+```
 
-module Queries
-    using VPL
-    struct A <: Node end
+## Model definition
 
-    struct C <: Node
-        val::Float64
+### Node types
+
+The data types needed to simulate the trees are given in the following
+module. The difference with respec to the previous model is that Internodes and
+Leaves have optical properties needed for ray tracing (they are defined as
+Lambertian surfaces).
+
+```julia
+# Data types
+module TreeTypes
+    using VirtualPlantLab
+    using Distributions
+    # Meristem
+    Base.@kwdef mutable struct Meristem <: VirtualPlantLab.Node
+        age::Int64 = 0   # Age of the meristem
     end
-
-    struct B <: Node
-        ID::Int
+    # Bud
+    struct Bud <: VirtualPlantLab.Node end
+    # Node
+    struct Node <: VirtualPlantLab.Node end
+    # BudNode
+    struct BudNode <: VirtualPlantLab.Node end
+    # Internode (needs to be mutable to allow for changes over time)
+    Base.@kwdef mutable struct Internode <: VirtualPlantLab.Node
+        age::Int64 = 0         # Age of the internode
+        biomass::Float64 = 0.0 # Initial biomass
+        length::Float64 = 0.0  # Internodes
+        width::Float64  = 0.0  # Internodes
+        sink::Exponential{Float64} = Exponential(5)
+        material::Lambertian{1} = Lambertian(τ = 0.1, ρ = 0.05) # Leaf material
+    end
+    # Leaf
+    Base.@kwdef mutable struct Leaf <: VirtualPlantLab.Node
+        age::Int64 = 0         # Age of the leaf
+        biomass::Float64 = 0.0 # Initial biomass
+        length::Float64 = 0.0  # Leaves
+        width::Float64 = 0.0   # Leaves
+        sink::Beta{Float64} = Beta(2,5)
+        material::Lambertian{1} = Lambertian(τ = 0.1, ρ = 0.05) # Leaf material
+    end
+    # Graph-level variables -> mutable because we need to modify them during growth
+    Base.@kwdef mutable struct treeparams
+        # Variables
+        PAR::Float64 = 0.0   # Total PAR absorbed by the leaves on the tree (MJ)
+        biomass::Float64 = 2e-3 # Current total biomass (g)
+        # Parameters
+        RUE::Float64 = 5.0   # Radiation use efficiency (g/MJ) -> unrealistic to speed up sim
+        IB0::Float64 = 1e-3  # Initial biomass of an internode (g)
+        SIW::Float64 = 0.1e6   # Specific internode weight (g/m3)
+        IS::Float64  = 15.0  # Internode shape parameter (length/width)
+        LB0::Float64 = 1e-3  # Initial biomass of a leaf
+        SLW::Float64 = 100.0 # Specific leaf weight (g/m2)
+        LS::Float64  = 3.0   # Leaf shape parameter (length/width)
+        budbreak::Float64 = 1/0.5 # Bud break probability coefficient (in 1/m)
+        plastochron::Int64 = 5 # Number of days between phytomer production
+        leaf_expansion::Float64 = 15.0 # Number of days that a leaf expands
+        phyllotaxis::Float64 = 140.0
+        leaf_angle::Float64 = 30.0
+        branch_angle::Float64 = 45.0
     end
 end
-import .Queries as Q
+
+import .TreeTypes
 ```
 
-We generate the graph directly, rather than with rewriting rules. The graph has
-a motif that is repeated three times (with a small variation), so we can create
-the graph in a piecewise manner. Note how we can use the function `sum` to add
-nodes to the graph (i.e. `sum(A() for i in 1:3)` is equivalent to `A() + A() + A()`)
+### Geometry
+
+The methods for creating the geometry and color of the tree are the same as in
+the previous example but include the materials for the ray tracer.
 
 ```julia
-#| code-fold: false
-motif(n, i = 0) = Q.A() + (Q.C(45.0) + Q.A() + (Q.C(45.0) +  Q.A() + Q.B(i + 1),
-                                           Q.C(-45.0) + Q.A() + Q.B(i + 2),
-                                                       Q.A() + Q.B(i + 3)),
-                         Q.C(- 45.0) + sum(Q.A() for i in 1:n) + Q.B(i + 4))
-axiom =  motif(3, 0) + motif(2, 4) + motif(1, 8) + Q.A() + Q.A() + Q.B(13)
-graph = Graph(axiom = axiom);
-draw(graph)
-```
+# Create geometry + color for the internodes
+function VirtualPlantLab.feed!(turtle::Turtle, i::TreeTypes.Internode, data)
+    # Rotate turtle around the head to implement elliptical phyllotaxis
+    rh!(turtle, data.phyllotaxis)
+    HollowCylinder!(turtle, length = i.length, height = i.width, width = i.width,
+                move = true, color = RGB(0.5,0.4,0.0), material = i.material)
+    return nothing
+end
 
-By default, VPL will use as node label the type of node and the internal ID generated by VPL itself. This ID is useful if we want to
-extract a particular node from the graph, but it is not controlled by the user. However, the user can specialized the function `node_label()`
-to specify exactly how to label the nodes of a particular type. In this case, we want to just print `A` or `C` for nodes of type `A` and `C`, whereas
-for nodes of type `B` we want to use the `ID` field that was stored inside the node during the graph generation.
+# Create geometry + color for the leaves
+function VirtualPlantLab.feed!(turtle::Turtle, l::TreeTypes.Leaf, data)
+    # Rotate turtle around the arm for insertion angle
+    ra!(turtle, -data.leaf_angle)
+    # Generate the leaf
+    Ellipse!(turtle, length = l.length, width = l.width, move = false,
+             color = RGB(0.2,0.6,0.2), material = l.material)
+    # Rotate turtle back to original direction
+    ra!(turtle, data.leaf_angle)
+    return nothing
+end
 
-```julia
-VPL.node_label(n::Q.B, id) = "B-$(n.ID)"
-VPL.node_label(n::Q.A, id) = "A"
-VPL.node_label(n::Q.C, id) = "C"
-draw(graph)
-```
-
-To clarify, the `id` argument of the function `node_label()` refers to the internal id generated by VPL (used by the default method for `node_label()`, whereas the the first argument is the data stored inside a node (in the case of `B` nodes, there is a field called `ID` that will not be modified by VPL as that is user-provided data).
-
-The goal of this exercise is then to write queries that retrieve specific `B`
-nodes  without using the data stored in the node in the query. That is, we have
-to identify nodes based on their relationships to other nodes.
-
-## All nodes of type `B`
-
-First, we create the query object. In this case, there is no special condition as
-we want to retrieve all the nodes of type `B`
-
-```julia
-#| code-fold: false
-Q1 = Query(Q.B)
-```
-
-Applying the query to the graph returns an array with all the `B` nodes
-
-```julia
-#| code-fold: false
-A1 = apply(graph, Q1)
-```
-
-
-For the remainder of this tutorial, the code will be hidden by default to allow users to try on their own.
-
-
-## Node containing value 13
-
-Since the `B` node 13 is the leaf node of the main branch of the graph (e.g. this could be the apical meristem of the main stem of a plant), there
-are no rotations between the root node of the graph and this node. Therefore,
-the only condition require to single out this node is that it has no ancestor
-node of type `C`.
-
-Checking whether a node has an ancestor that meets a certain
-condition can be achieved with the function `hasAncestor()`. Similarly to the
-condition of the `Query` object, the `hasAncestor()` function also has a condition,
-in this case applied to the parent node of the node being tested, and moving
-upwards in the graph recursively (until reaching the root node). Note that, in
-order to access the object stored inside the node, we need to use the `data()`
-function, and then we can test if that object is of type `C`. The `B` node 13
-is the only node for which `hasAncestor()` should return `false`:
-
-```julia
-function Q2_fun(n)
-    check, steps = has_ancestor(n, condition = x -> data(x) isa Q.C)
-    !check
+# Insertion angle for the bud nodes
+function VirtualPlantLab.feed!(turtle::Turtle, b::TreeTypes.BudNode, data)
+    # Rotate turtle around the arm for insertion angle
+    ra!(turtle, -data.branch_angle)
 end
 ```
 
-As before, we just need to apply the `Query` object to the graph:
+### Development
+
+The meristem rule is now parameterized by the initial states of the leaves and
+internodes and will only be triggered every X days where X is the plastochron.
 
 ```julia
-Q2 = Query(Q.B, condition = Q2_fun)
-A2 = apply(graph, Q2)
-```
-
-## Nodes containing values 1, 2 and 3
-
-These three nodes belong to one of the branch motifs repeated through the graph. Thus,
-we need to identify the specific motif they belong to and chose all the `B` nodes
-inside that motif. The motif is defined by an `A` node that has a `C` child with
-a negative `val` and parent node `C` with positive `val`. This `A` node
-should then be 2 nodes away from the root node to separate it from upper repetitions
-of the motif.
-Therefore, we need to test for two conditions, first find those nodes inside a
-branch motif, then retrieve the root of the branch motif (i.e., the `A` node
-described in the above) and then check the distance of that node from the root:
-
-```julia
-function branch_motif(p)
-    data(p) isa Q.A &&
-    hasdescendant(p, condition = x -> data(x) isa Q.C && data(x).val < 0.0)[1] &&
-    has_ancestor(p, condition = x -> data(x) isa Q.C && data(x).val > 0.0)[1]
-end
-
-function Q3_fun(n, nsteps)
-    # Condition 1
-    check, steps = has_ancestor(n, condition = branch_motif)
-    !check && return false
-    # Condition 2
-    p = parent(n, nsteps = steps)
-    check, steps = has_ancestor(p, condition = isroot)
-    steps != nsteps && return false
-    return true
+# Create right side of the growth rule (parameterized by the initial states
+# of the leaves and internodes)
+function create_meristem_rule(vleaf, vint)
+    meristem_rule = Rule(TreeTypes.Meristem,
+                        lhs = mer -> mod(data(mer).age, graph_data(mer).plastochron) == 0,
+                        rhs = mer -> TreeTypes.Node() +
+                                     (TreeTypes.Bud(),
+                                     TreeTypes.Leaf(biomass = vleaf.biomass,
+                                                    length  = vleaf.length,
+                                                    width   = vleaf.width)) +
+                                     TreeTypes.Internode(biomass = vint.biomass,
+                                                         length  = vint.length,
+                                                         width   = vint.width) +
+                                     TreeTypes.Meristem())
 end
 ```
 
-And applying the query to the object results in the required nodes:
+The bud break probability is now a function of distance to the apical meristem
+rather than the number of internodes. An adhoc traversal is used to compute this
+length of the main branch a bud belongs to (ignoring the lateral branches).
 
 ```julia
-Q3 = Query(Q.B, condition = n -> Q3_fun(n, 2))
-A3 = apply(graph, Q3)
-```
+# Compute the probability that a bud breaks as function of distance to the meristem
+function prob_break(bud)
+    # We move to parent node in the branch where the bud was created
+    node =  parent(bud)
+    # Extract the first internode
+    child = filter(x -> data(x) isa TreeTypes.Internode, children(node))[1]
+    data_child = data(child)
+    # We measure the length of the branch until we find the meristem
+    distance = 0.0
+    while !isa(data_child, TreeTypes.Meristem)
+        # If we encounter an internode, store the length and move to the next node
+        if data_child isa TreeTypes.Internode
+            distance += data_child.length
+            child = children(child)[1]
+            data_child = data(child)
+        # If we encounter a node, extract the next internode
+        elseif data_child isa TreeTypes.Node
+                child = filter(x -> data(x) isa TreeTypes.Internode, children(child))[1]
+                data_child = data(child)
+        else
+            error("Should be Internode, Node or Meristem")
+        end
+    end
+    # Compute the probability of bud break as function of distance and
+    # make stochastic decision
+    prob =  min(1.0, distance*graph_data(bud).budbreak)
+    return rand() < prob
+end
 
-## Node containing value 4
-
-The node `B` with value 4 can be singled-out because there is no branching point
-between the root node and this node. This means that no ancestor node should have
-more than one children node except the root node. Remember that `hasAncestor()`
-returns two values, but we are only interested in the first value. You do not need to
-assign the returned object from a Julia function, you can just index directly the element
-to be selected from the returned tuple:
-
-```julia
-function Q4_fun(n)
-    !has_ancestor(n, condition = x -> isroot(x) && length(children(x)) > 1)[1]
+# Branch rule parameterized by initial states of internodes
+function create_branch_rule(vint)
+    branch_rule = Rule(TreeTypes.Bud,
+            lhs = prob_break,
+            rhs = bud -> TreeTypes.BudNode() +
+                         TreeTypes.Internode(biomass = vint.biomass,
+                                             length  = vint.length,
+                                             width   = vint.width) +
+                         TreeTypes.Meristem())
 end
 ```
 
-And applying the query to the object results in the required node:
+### Light interception
+
+As growth is now dependent on intercepted PAR via RUE, we now need to simulate
+light interception by the trees. We will use a ray-tracing approach to do so.
+The first step is to create a scene with the trees and the light sources. As for
+rendering, the scene can be created from the `forest` object by simply calling
+`Scene(forest)` that will generate the 3D meshes and connect them to their
+optical properties.
+
+However, we also want to add the soil surface as this will affect the light
+distribution within the scene due to reflection from the soil surface. This is
+similar to the customized scene that we created before for rendering, but now
+for the light simulation.
 
 ```julia
-Q4 = Query(Q.B, condition = Q4_fun)
-A4 = apply(graph, Q4)
+function create_soil()
+    soil = Rectangle(length = 21.0, width = 21.0)
+    rotatey!(soil, π/2) # To put it in the XY plane
+    VirtualPlantLab.translate!(soil, Vec(0.0, 10.5, 0.0)) # Corner at (0,0,0)
+    return soil
+end
+function create_scene(forest)
+    # These are the trees
+    scene = Scene(vec(forest))
+    # Add a soil surface
+    soil = create_soil()
+    soil_material = Lambertian(τ = 0.0, ρ = 0.21)
+    add!(scene, mesh = soil, material = soil_material)
+    # Return the scene
+    return scene
+end
 ```
 
-## Node containing value 3
-
-This node is the only `B` node that is four steps from the root node, which we can
-retrieve from the second argument returned by `hasAncestor()`:
+Given the scene, we can create the light sources that can approximate the solar
+irradiance on a given day, location and time of the day using the functions from
+the  package (see package documentation for details). Given the latitude,
+day of year and fraction of the day (`f = 0` being sunrise and `f = 1` being sunset),
+the function `clear_sky()` computes the direct and diffuse solar radiation assuming
+a clear sky. These values may be converted to different wavebands and units using
+`waveband_conversion()`. Finally, the collection of light sources approximating
+the solar irradiance distribution over the sky hemisphere is constructed with the
+function `sky()` (this last step requires the 3D scene as input in order to place
+the light sources adequately).
 
 ```julia
-function Q5_fun(n)
-    check, steps = has_ancestor(n, condition = isroot)
-    steps == 4
+function create_sky(;scene, lat = 52.0*π/180.0, DOY = 182)
+    # Fraction of the day and day length
+    fs = collect(0.1:0.1:0.9)
+    dec = declination(DOY)
+    DL = day_length(lat, dec)*3600
+    # Compute solar irradiance
+    temp = [clear_sky(lat = lat, DOY = DOY, f = f) for f in fs] # W/m2
+    Ig   = getindex.(temp, 1)
+    Idir = getindex.(temp, 2)
+    Idif = getindex.(temp, 3)
+    # Conversion factors to PAR for direct and diffuse irradiance
+    f_dir = waveband_conversion(Itype = :direct,  waveband = :PAR, mode = :power)
+    f_dif = waveband_conversion(Itype = :diffuse, waveband = :PAR, mode = :power)
+    # Actual irradiance per waveband
+    Idir_PAR = f_dir.*Idir
+    Idif_PAR = f_dif.*Idif
+    # Create the dome of diffuse light
+    dome = sky(scene,
+                  Idir = 0.0, # No direct solar radiation
+                  Idif = sum(Idir_PAR)/10*DL, # Daily Diffuse solar radiation
+                  nrays_dif = 1_000_000, # Total number of rays for diffuse solar radiation
+                  sky_model = StandardSky, # Angular distribution of solar radiation
+                  dome_method = equal_solid_angles, # Discretization of the sky dome
+                  ntheta = 9, # Number of discretization steps in the zenith angle
+                  nphi = 12) # Number of discretization steps in the azimuth angle
+    # Add direct sources for different times of the day
+    for I in Idir_PAR
+        push!(dome, sky(scene, Idir = I/10*DL, nrays_dir = 100_000, Idif = 0.0)[1])
+    end
+    return dome
+end
+```
+
+The 3D scene and the light sources are then combined into a `RayTracer` object,
+together with general settings for the ray tracing simulation chosen via `RTSettings()`.
+The most important settings refer to the Russian roulette system and the grid
+cloner (see section on Ray Tracing for details). The settings for the Russian
+roulette system include the number of times a ray will be traced
+deterministically (`maxiter`) and the probability that a ray that exceeds `maxiter`
+is terminated (`pkill`). The grid cloner is used to approximate an infinite canopy
+by replicating the scene in the different directions (`nx` and `ny` being the
+number of replicates in each direction along the x and y axes, respectively). It
+is also possible to turn on parallelization of the ray tracing simulation by
+setting `parallel = true` (currently this uses Julia's builtin multithreading
+capabilities).
+
+In addition `RTSettings()`, an acceleration structure and a splitting rule can
+be defined when creating the `RayTracer` object (see ray tracing documentation
+for details). The acceleration structure allows speeding up the ray tracing
+by avoiding testing all rays against all objects in the scene.
+
+```julia
+function create_raytracer(scene, sources)
+    settings = RTSettings(pkill = 0.9, maxiter = 4, nx = 5, ny = 5, parallel = true)
+    RayTracer(scene, sources, settings = settings, acceleration = BVH,
+                     rule = SAH{3}(5, 10));
+end
+```
+
+The actual ray tracing simulation is performed by calling the `trace!()` method
+on the ray tracing object. This will trace all rays from all light sources and
+update the radiant power absorbed by the different surfaces in the scene inside
+the `Material` objects (see `feed!()` above):
+
+```julia
+function run_raytracer!(forest; DOY = 182)
+    scene   = create_scene(forest)
+    sources = create_sky(scene = scene, DOY = DOY)
+    rtobj   = create_raytracer(scene, sources)
+    trace!(rtobj)
+    return nothing
+end
+```
+
+The total PAR absorbed for each tree is calculated from the material objects of
+the different internodes (using `power()` on the `Material` object). Note that
+the `power()` function returns three different values, one for each waveband,
+but they are added together as RUE is defined for total PAR.
+
+
+```julia
+# Run the ray tracer, calculate PAR absorbed per tree and add it to the daily
+# total using general weighted quadrature formula
+function calculate_PAR!(forest;  DOY = 182)
+    # Reset PAR absorbed by the tree (at the start of a new day)
+    reset_PAR!(forest)
+    # Run the ray tracer to compute daily PAR absorption
+    run_raytracer!(forest, DOY = DOY)
+    # Add up PAR absorbed by each leaf within each tree
+    @threads for tree in forest
+        for l in get_leaves(tree)
+            data(tree).PAR += power(l.material)[1]
+        end
+    end
+    return nothing
 end
 
-Q5 = Query(Q.B, condition = Q5_fun)
-A5 = apply(graph, Q5)
+# Reset PAR absorbed by the tree (at the start of a new day)
+function reset_PAR!(forest)
+    for tree in forest
+        data(tree).PAR = 0.0
+    end
+    return nothing
+end
 ```
 
-## Node containing value 7
+### Growth
 
-Node `B` 7 belongs to the second lateral branch motif and the second parent
-node is of type `A`. Note that we can reuse the `Q3_fun` from before in the
-condition required for this node:
+We need some functions to compute the length and width of a leaf or internode
+from its biomass
 
 ```julia
-function Q6_fun(n, nA)
-    check = Q3_fun(n, nA)
-    !check && return false
-    p2 = parent(n, nsteps = 2)
-    data(p2) isa Q.A
+function leaf_dims(biomass, vars)
+    leaf_biomass = biomass
+    leaf_area    = biomass/vars.SLW
+    leaf_length  = sqrt(leaf_area*4*vars.LS/pi)
+    leaf_width   = leaf_length/vars.LS
+    return leaf_length, leaf_width
 end
 
-Q6 = Query(Q.B, condition = n -> Q6_fun(n, 3))
-A6 = apply(graph, Q6)
-```
-
-## Nodes containing values 11 and 13
-
-The `B` nodes 11 and 13 actually have different relationships to the rest of the graph,
-so we just need to define two different condition functions and combine them.
-The condition for the `B` node 11 is similar to the `B` node 7, whereas the condition
-for node 13 was already constructed before, so we just need to combined them with an
-OR operator:
-
-```julia
-Q7 = Query(Q.B, condition = n -> Q6_fun(n, 4) || Q2_fun(n))
-A7 = apply(graph, Q7)
-```
-
-
-## Nodes containing values 1, 5 and 9
-
-These nodes play the same role in the three lateral branch motifs. They are the
-only `B` nodes preceded by the sequence A C+ A. We just need to check the
-sequence og types of objects for the the first three parents of each `B` node:
-
-```julia
-function Q8_fun(n)
-    p1 = parent(n)
-    p2 = parent(n, nsteps = 2)
-    p3 = parent(n, nsteps = 3)
-    data(p1) isa Q.A && data(p2) isa Q.C && data(p2).val > 0.0 && data(p3) isa Q.A
+function int_dims(biomass, vars)
+    int_biomass = biomass
+    int_volume  = biomass/vars.SIW
+    int_length  = cbrt(int_volume*4*vars.IS^2/pi)
+    int_width   = int_length/vars.IS
+    return int_length, int_width
 end
-
-Q8 = Query(Q.B, condition = Q8_fun)
-A8 = apply(graph, Q8)
 ```
 
-## Nodes contaning values 2, 6 and 10
+Each day, the total biomass of the tree is updated using a simple RUE formula
+and the increment of biomass is distributed across the organs proportionally to
+their relative sink strength (of leaves or internodes).
 
-This exercise is similar to the previous one, but the C node has a negative
-`val`. The problem is that node 12 would also match the pattern A C- A. We
-can differentiate between this node and the rest by checking for a fourth
-ancestor node of class `C`:
+The sink strength of leaves is modelled with a beta distribution scaled to the
+`leaf_expansion` argument that determines the duration of leaf growth, whereas
+for the internodes it follows a negative exponential distribution. The `pdf`
+function computes the probability density of each distribution which is taken as
+proportional to the sink strength (the model is actually source-limited since we
+imposed a particular growth rate).
 
 ```julia
-function Q9_fun(n)
-    p1 = parent(n)
-    p2 = parent(n, nsteps = 2)
-    p3 = parent(n, nsteps = 3)
-    p4 = parent(n, nsteps = 4)
-    data(p1) isa Q.A && data(p2) isa Q.C && data(p2).val < 0.0 &&
-       data(p3) isa Q.A && data(p4) isa Q.C
-end
-
-Q9 = Query(Q.B, condition = Q9_fun)
-A9 = apply(graph, Q9)
+sink_strength(leaf, vars) = leaf.age > vars.leaf_expansion ? 0.0 :
+                            pdf(leaf.sink, leaf.age/vars.leaf_expansion)/100.0
+plot(0:1:50, x -> sink_strength(TreeTypes.Leaf(age = x), TreeTypes.treeparams()),
+     xlabel = "Age", ylabel = "Sink strength", label = "Leaf")
 ```
 
-## Nodes containg values 6, 7 and 8
-
-We already came up with a condition to extract node 7. We can also modify the previous
-condition so that it only node 6.  Node 8 can be identified by checking for the third
-parent node being of type `C` and being 5 nodes from the root of the graph.
-
-As always, we can reusing previous conditions since they are just regular Julia functions:
-
 ```julia
-function Q10_fun(n)
-    Q6_fun(n, 3) && return true # Check node 7
-    Q9_fun(n) && has_ancestor(n, condition = isroot)[2] == 6 && return true # Check node 6
-    has_ancestor(n, condition = isroot)[2] == 5 && data(parent(n, nsteps = 3)) isa Q.C && return true # Check node 8 (and not 4!)
-end
-
-Q10 = Query(Q.B, condition = Q10_fun)
-A10 = apply(graph, Q10)
+sink_strength(int) = pdf(int.sink, int.age)
+plot!(0:1:50, x -> sink_strength(TreeTypes.Internode(age = x)), label = "Internode")
 ```
 
-## Nodes containig values 3, 7, 11 and 12
-
-We already have conditions to select nodes 3, 7 and 11 so we just need a new condition
-for node 12 (similar to the condition for 8).
+Now we need a function that updates the biomass of the tree, allocates it to the
+different organs and updates the dimensions of said organs. For simplicity,
+we create the functions `leaves()` and `internodes()` that will apply the queries
+to the tree required to extract said nodes:
 
 ```julia
-function Q11_fun(n)
-    Q5_fun(n) && return true # 3
-    Q6_fun(n, 3) && return true # 7
-    Q6_fun(n, 4) && return true # 11
-    has_ancestor(n, condition = isroot)[2] == 5 && data(parent(n, nsteps = 2)) isa Q.C &&
-        data(parent(n, nsteps = 4)) isa Q.A && return true # 12
-end
-
-Q11 = Query(Q.B, condition = Q11_fun)
-A11 = apply(graph, Q11)
+get_leaves(tree) = apply(tree, Query(TreeTypes.Leaf))
+get_internodes(tree) = apply(tree, Query(TreeTypes.Internode))
 ```
 
-## Nodes containing values 7 and 12
-
-We just need to combine the conditions for the nodes 7 and 12
+The age of the different organs is updated every time step:
 
 ```julia
-function Q12_fun(n)
-    Q6_fun(n, 3) && return true # 7
-    has_ancestor(n, condition = isroot)[2] == 5 && data(parent(n, nsteps = 2)) isa Q.C &&
-        data(parent(n, nsteps = 4)) isa Q.A && return true # 12
+function age!(all_leaves, all_internodes, all_meristems)
+    for leaf in all_leaves
+        leaf.age += 1
+    end
+    for int in all_internodes
+        int.age += 1
+    end
+    for mer in all_meristems
+        mer.age += 1
+    end
+    return nothing
 end
+```
 
-Q12 = Query(Q.B, condition = Q12_fun)
-A12 = apply(graph, Q12)
+The daily growth is allocated to different organs proportional to their sink
+strength.
+
+```julia
+function grow!(tree, all_leaves, all_internodes)
+    # Compute total biomass increment
+    tdata = data(tree)
+    ΔB    = max(0.5, tdata.RUE*tdata.PAR/1e6) # Trick to emulate reserves in seedling
+    tdata.biomass += ΔB
+    # Total sink strength
+    total_sink = 0.0
+    for leaf in all_leaves
+        total_sink += sink_strength(leaf, tdata)
+    end
+    for int in all_internodes
+        total_sink += sink_strength(int)
+    end
+    # Allocate biomass to leaves and internodes
+    for leaf in all_leaves
+        leaf.biomass += ΔB*sink_strength(leaf, tdata)/total_sink
+    end
+    for int in all_internodes
+        int.biomass += ΔB*sink_strength(int)/total_sink
+    end
+    return nothing
+end
+```
+
+Finally, we need to update the dimensions of the organs. The leaf dimensions are
+
+```julia
+function size_leaves!(all_leaves, tvars)
+    for leaf in all_leaves
+        leaf.length, leaf.width = leaf_dims(leaf.biomass, tvars)
+    end
+    return nothing
+end
+function size_internodes!(all_internodes, tvars)
+    for int in all_internodes
+        int.length, int.width = int_dims(int.biomass, tvars)
+    end
+    return nothing
+end
+```
+
+### Daily step
+
+All the growth and developmental functions are combined together into a daily
+step function that updates the forest by iterating over the different trees in
+parallel.
+
+```julia
+get_meristems(tree) = apply(tree, Query(TreeTypes.Meristem))
+function daily_step!(forest, DOY)
+    # Compute PAR absorbed by each tree
+    calculate_PAR!(forest, DOY = DOY)
+    # Grow the trees
+    @threads for tree in forest
+        # Retrieve all the relevant organs
+        all_leaves = get_leaves(tree)
+        all_internodes = get_internodes(tree)
+        all_meristems = get_meristems(tree)
+        # Update the age of the organs
+        age!(all_leaves, all_internodes, all_meristems)
+        # Grow the tree
+        grow!(tree, all_leaves, all_internodes)
+        tdata = data(tree)
+        size_leaves!(all_leaves, tdata)
+        size_internodes!(all_internodes, tdata)
+        # Developmental rules
+        rewrite!(tree)
+    end
+end
+```
+
+### Initialization
+
+The trees are initialized on a regular grid with random values for the initial
+orientation and RUE:
+
+```julia
+RUEs = rand(Normal(1.5,0.2), 10, 10)
+histogram(vec(RUEs))
+```
+
+```julia
+orientations = [rand()*360.0 for i = 1:2.0:20.0, j = 1:2.0:20.0]
+histogram(vec(orientations))
+```
+
+```julia
+origins = [Vec(i,j,0) for i = 1:2.0:20.0, j = 1:2.0:20.0];
+```
+
+The following initalizes a tree based on the origin, orientation and RUE:
+
+```julia
+function create_tree(origin, orientation, RUE)
+    # Initial state and parameters of the tree
+    data = TreeTypes.treeparams(RUE = RUE)
+    # Initial states of the leaves
+    leaf_length, leaf_width = leaf_dims(data.LB0, data)
+    vleaf = (biomass = data.LB0, length = leaf_length, width = leaf_width)
+    # Initial states of the internodes
+    int_length, int_width = int_dims(data.LB0, data)
+    vint = (biomass = data.IB0, length = int_length, width = int_width)
+    # Growth rules
+    meristem_rule = create_meristem_rule(vleaf, vint)
+    branch_rule   = create_branch_rule(vint)
+    axiom = T(origin) + RH(orientation) +
+            TreeTypes.Internode(biomass = vint.biomass,
+                                length  = vint.length,
+                                width   = vint.width) +
+            TreeTypes.Meristem()
+    tree = Graph(axiom = axiom, rules = (meristem_rule, branch_rule),
+                 data = data)
+    return tree
+end
+```
+
+
+## Visualization
+
+As in the previous example, it makes sense to visualize the forest with a soil
+tile beneath it. Unlike in the previous example, we will construct the soil tile
+using a dedicated graph and generate a `Scene` object which can later be
+merged with the rest of scene generated in daily step:
+
+```julia
+Base.@kwdef struct Soil <: VirtualPlantLab.Node
+    length::Float64
+    width::Float64
+end
+function VirtualPlantLab.feed!(turtle::Turtle, s::Soil, data)
+    Rectangle!(turtle, length = s.length, width = s.width, color = RGB(255/255, 236/255, 179/255))
+end
+soil_graph = RA(-90.0) + T(Vec(0.0, 10.0, 0.0)) + # Moves into position
+             Soil(length = 20.0, width = 20.0) # Draws the soil tile
+soil = Scene(Graph(axiom = soil_graph));
+render(soil, axes = false)
+```
+
+And the following function renders the entire scene (notice that we need to
+use `display()` to force the rendering of the scene when called within a loop
+or a function):
+
+```julia
+function render_forest(forest, soil)
+    scene = Scene(vec(forest)) # create scene from forest
+    scene = Scene([scene, soil]) # merges the two scenes
+    display(render(scene))
+end
+```
+
+## Simulation
+
+We can now create a forest of trees on a regular grid:
+
+```julia
+forest = create_tree.(origins, orientations, RUEs);
+render_forest(forest, soil)
+start = 180
+for i in 1:20
+    println("Day $i")
+    daily_step!(forest, i + start)
+    if mod(i, 5) == 0
+        render_forest(forest, soil)
+    end
+end
 ```

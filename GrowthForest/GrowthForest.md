@@ -1,5 +1,7 @@
 # Growth forest
-Alejandro Morales Sierra
+
+Alejandro Morales
+
 Centre for Crop Systems Analysis - Wageningen University
 
 
@@ -14,7 +16,7 @@ dimensions of the organs are updated accordingly (assuming a particular shape).
 The following packages are needed:
 
 ```julia
-using VPL, ColorTypes
+using VirtualPlantLab, ColorTypes
 using Base.Threads: @threads
 using Plots
 import Random
@@ -38,20 +40,20 @@ module. The differences with respect to the previous example are:
 ```julia
 # Data types
 module TreeTypes
-    using VPL
+    using VirtualPlantLab
     using Distributions
     # Meristem
-    Base.@kwdef mutable struct Meristem <: VPL.Node
+    Base.@kwdef mutable struct Meristem <: VirtualPlantLab.Node
         age::Int64 = 0   # Age of the meristem
     end
     # Bud
-    struct Bud <: VPL.Node end
+    struct Bud <: VirtualPlantLab.Node end
     # Node
-    struct Node <: VPL.Node end
+    struct Node <: VirtualPlantLab.Node end
     # BudNode
-    struct BudNode <: VPL.Node end
+    struct BudNode <: VirtualPlantLab.Node end
     # Internode (needs to be mutable to allow for changes over time)
-    Base.@kwdef mutable struct Internode <: VPL.Node
+    Base.@kwdef mutable struct Internode <: VirtualPlantLab.Node
         age::Int64 = 0         # Age of the internode
         biomass::Float64 = 0.0 # Initial biomass
         length::Float64 = 0.0  # Internodes
@@ -59,7 +61,7 @@ module TreeTypes
         sink::Exponential{Float64} = Exponential(5)
     end
     # Leaf
-    Base.@kwdef mutable struct Leaf <: VPL.Node
+    Base.@kwdef mutable struct Leaf <: VirtualPlantLab.Node
         age::Int64 = 0         # Age of the leaf
         biomass::Float64 = 0.0 # Initial biomass
         length::Float64 = 0.0  # Leaves
@@ -97,7 +99,7 @@ the previous example.
 
 ```julia
 # Create geometry + color for the internodes
-function VPL.feed!(turtle::Turtle, i::TreeTypes.Internode, vars)
+function VirtualPlantLab.feed!(turtle::Turtle, i::TreeTypes.Internode, vars)
     # Rotate turtle around the head to implement elliptical phyllotaxis
     rh!(turtle, vars.phyllotaxis)
     HollowCylinder!(turtle, length = i.length, height = i.width, width = i.width,
@@ -106,7 +108,7 @@ function VPL.feed!(turtle::Turtle, i::TreeTypes.Internode, vars)
 end
 
 # Create geometry + color for the leaves
-function VPL.feed!(turtle::Turtle, l::TreeTypes.Leaf, vars)
+function VirtualPlantLab.feed!(turtle::Turtle, l::TreeTypes.Leaf, vars)
     # Rotate turtle around the arm for insertion angle
     ra!(turtle, -vars.leaf_angle)
     # Generate the leaf
@@ -118,7 +120,7 @@ function VPL.feed!(turtle::Turtle, l::TreeTypes.Leaf, vars)
 end
 
 # Insertion angle for the bud nodes
-function VPL.feed!(turtle::Turtle, b::TreeTypes.BudNode, vars)
+function VirtualPlantLab.feed!(turtle::Turtle, b::TreeTypes.BudNode, vars)
     # Rotate turtle around the arm for insertion angle
     ra!(turtle, -vars.branch_angle)
 end
@@ -393,11 +395,11 @@ using a dedicated graph and generate a `Scene` object which can later be
 merged with the rest of scene generated in daily step:
 
 ```julia
-Base.@kwdef struct Soil <: VPL.Node
+Base.@kwdef struct Soil <: VirtualPlantLab.Node
     length::Float64
     width::Float64
 end
-function VPL.feed!(turtle::Turtle, s::Soil, vars)
+function VirtualPlantLab.feed!(turtle::Turtle, s::Soil, vars)
     Rectangle!(turtle, length = s.length, width = s.width, color = RGB(255/255, 236/255, 179/255))
 end
 soil_graph = RA(-90.0) + T(Vec(0.0, 10.0, 0.0)) + # Moves into position
