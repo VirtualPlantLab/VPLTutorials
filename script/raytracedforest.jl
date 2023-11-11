@@ -1,16 +1,3 @@
-# Ray-traced forest
-
-Alejandro Morales
-
-Centre for Crop Systems Analysis - Wageningen University
-
-
-In this example we extend the forest growth model to include PAR interception a
-radiation use efficiency to compute the daily growth rate.
-
-The following packages are needed:
-
-```julia
 using VirtualPlantLab, ColorTypes
 import GLMakie
 using Base.Threads: @threads
@@ -20,25 +7,14 @@ using FastGaussQuadrature
 using Distributions
 using SkyDomes
 Random.seed!(123456789)
-```
 
-## Model definition
-
-### Node types
-
-The data types needed to simulate the trees are given in the following
-module. The difference with respec to the previous model is that Internodes and
-Leaves have optical properties needed for ray tracing (they are defined as
-Lambertian surfaces).
-
-```julia
 # Data types
 module TreeTypes
     using VirtualPlantLab
     using Distributions
     # Meristem
     Base.@kwdef mutable struct Meristem <: VirtualPlantLab.Node
-        age::Int64 = 0   # Age of the meristem
+        age::Int64 = 0   ## Age of the meristem
     end
     # Bud
     struct Bud <: VirtualPlantLab.Node end
@@ -48,38 +24,38 @@ module TreeTypes
     struct BudNode <: VirtualPlantLab.Node end
     # Internode (needs to be mutable to allow for changes over time)
     Base.@kwdef mutable struct Internode <: VirtualPlantLab.Node
-        age::Int64 = 0         # Age of the internode
-        biomass::Float64 = 0.0 # Initial biomass
-        length::Float64 = 0.0  # Internodes
-        width::Float64  = 0.0  # Internodes
+        age::Int64 = 0         ## Age of the internode
+        biomass::Float64 = 0.0 ## Initial biomass
+        length::Float64 = 0.0  ## Internodes
+        width::Float64  = 0.0  ## Internodes
         sink::Exponential{Float64} = Exponential(5)
-        material::Lambertian{1} = Lambertian(τ = 0.1, ρ = 0.05) # Leaf material
+        material::Lambertian{1} = Lambertian(τ = 0.1, ρ = 0.05) ## Leaf material
     end
     # Leaf
     Base.@kwdef mutable struct Leaf <: VirtualPlantLab.Node
-        age::Int64 = 0         # Age of the leaf
-        biomass::Float64 = 0.0 # Initial biomass
-        length::Float64 = 0.0  # Leaves
-        width::Float64 = 0.0   # Leaves
+        age::Int64 = 0         ## Age of the leaf
+        biomass::Float64 = 0.0 ## Initial biomass
+        length::Float64 = 0.0  ## Leaves
+        width::Float64 = 0.0   ## Leaves
         sink::Beta{Float64} = Beta(2,5)
-        material::Lambertian{1} = Lambertian(τ = 0.1, ρ = 0.05) # Leaf material
+        material::Lambertian{1} = Lambertian(τ = 0.1, ρ = 0.05) ## Leaf material
     end
     # Graph-level variables -> mutable because we need to modify them during growth
     Base.@kwdef mutable struct treeparams
         # Variables
-        PAR::Float64 = 0.0   # Total PAR absorbed by the leaves on the tree (MJ)
-        biomass::Float64 = 2e-3 # Current total biomass (g)
+        PAR::Float64 = 0.0   ## Total PAR absorbed by the leaves on the tree (MJ)
+        biomass::Float64 = 2e-3 ## Current total biomass (g)
         # Parameters
-        RUE::Float64 = 5.0   # Radiation use efficiency (g/MJ) -> unrealistic to speed up sim
-        IB0::Float64 = 1e-3  # Initial biomass of an internode (g)
-        SIW::Float64 = 0.1e6   # Specific internode weight (g/m3)
-        IS::Float64  = 15.0  # Internode shape parameter (length/width)
-        LB0::Float64 = 1e-3  # Initial biomass of a leaf
-        SLW::Float64 = 100.0 # Specific leaf weight (g/m2)
-        LS::Float64  = 3.0   # Leaf shape parameter (length/width)
-        budbreak::Float64 = 1/0.5 # Bud break probability coefficient (in 1/m)
-        plastochron::Int64 = 5 # Number of days between phytomer production
-        leaf_expansion::Float64 = 15.0 # Number of days that a leaf expands
+        RUE::Float64 = 5.0   ## Radiation use efficiency (g/MJ) -> unrealistic to speed up sim
+        IB0::Float64 = 1e-3  ## Initial biomass of an internode (g)
+        SIW::Float64 = 0.1e6 ## Specific internode weight (g/m3)
+        IS::Float64  = 15.0  ## Internode shape parameter (length/width)
+        LB0::Float64 = 1e-3  ## Initial biomass of a leaf
+        SLW::Float64 = 100.0 ## Specific leaf weight (g/m2)
+        LS::Float64  = 3.0   ## Leaf shape parameter (length/width)
+        budbreak::Float64 = 1/0.5 ## Bud break probability coefficient (in 1/m)
+        plastochron::Int64 = 5 ## Number of days between phytomer production
+        leaf_expansion::Float64 = 15.0 ## Number of days that a leaf expands
         phyllotaxis::Float64 = 140.0
         leaf_angle::Float64 = 30.0
         branch_angle::Float64 = 45.0
@@ -87,14 +63,7 @@ module TreeTypes
 end
 
 import .TreeTypes
-```
 
-### Geometry
-
-The methods for creating the geometry and color of the tree are the same as in
-the previous example but include the materials for the ray tracer.
-
-```julia
 # Create geometry + color for the internodes
 function VirtualPlantLab.feed!(turtle::Turtle, i::TreeTypes.Internode, data)
     # Rotate turtle around the head to implement elliptical phyllotaxis
@@ -121,14 +90,7 @@ function VirtualPlantLab.feed!(turtle::Turtle, b::TreeTypes.BudNode, data)
     # Rotate turtle around the arm for insertion angle
     ra!(turtle, -data.branch_angle)
 end
-```
 
-### Development
-
-The meristem rule is now parameterized by the initial states of the leaves and
-internodes and will only be triggered every X days where X is the plastochron.
-
-```julia
 # Create right side of the growth rule (parameterized by the initial states
 # of the leaves and internodes)
 function create_meristem_rule(vleaf, vint)
@@ -144,14 +106,7 @@ function create_meristem_rule(vleaf, vint)
                                                          width   = vint.width) +
                                      TreeTypes.Meristem())
 end
-```
 
-The bud break probability is now a function of distance to the apical meristem
-rather than the number of internodes. An adhoc traversal is used to compute this
-length of the main branch a bud belongs to (ignoring the lateral branches).
-
-```julia
-# Compute the probability that a bud breaks as function of distance to the meristem
 function prob_break(bud)
     # We move to parent node in the branch where the bud was created
     node =  parent(bud)
@@ -190,27 +145,11 @@ function create_branch_rule(vint)
                                              width   = vint.width) +
                          TreeTypes.Meristem())
 end
-```
 
-### Light interception
-
-As growth is now dependent on intercepted PAR via RUE, we now need to simulate
-light interception by the trees. We will use a ray-tracing approach to do so.
-The first step is to create a scene with the trees and the light sources. As for
-rendering, the scene can be created from the `forest` object by simply calling
-`Scene(forest)` that will generate the 3D meshes and connect them to their
-optical properties.
-
-However, we also want to add the soil surface as this will affect the light
-distribution within the scene due to reflection from the soil surface. This is
-similar to the customized scene that we created before for rendering, but now
-for the light simulation.
-
-```julia
 function create_soil()
     soil = Rectangle(length = 21.0, width = 21.0)
-    rotatey!(soil, π/2) # To put it in the XY plane
-    VirtualPlantLab.translate!(soil, Vec(0.0, 10.5, 0.0)) # Corner at (0,0,0)
+    rotatey!(soil, π/2) ## To put it in the XY plane
+    VirtualPlantLab.translate!(soil, Vec(0.0, 10.5, 0.0)) ## Corner at (0,0,0)
     return soil
 end
 function create_scene(forest)
@@ -223,20 +162,7 @@ function create_scene(forest)
     # Return the scene
     return scene
 end
-```
 
-Given the scene, we can create the light sources that can approximate the solar
-irradiance on a given day, location and time of the day using the functions from
-the  package (see package documentation for details). Given the latitude,
-day of year and fraction of the day (`f = 0` being sunrise and `f = 1` being sunset),
-the function `clear_sky()` computes the direct and diffuse solar radiation assuming
-a clear sky. These values may be converted to different wavebands and units using
-`waveband_conversion()`. Finally, the collection of light sources approximating
-the solar irradiance distribution over the sky hemisphere is constructed with the
-function `sky()` (this last step requires the 3D scene as input in order to place
-the light sources adequately).
-
-```julia
 function create_sky(;scene, lat = 52.0*π/180.0, DOY = 182)
     # Fraction of the day and day length
     fs = collect(0.1:0.1:0.9)
@@ -255,53 +181,26 @@ function create_sky(;scene, lat = 52.0*π/180.0, DOY = 182)
     Idif_PAR = f_dif.*Idif
     # Create the dome of diffuse light
     dome = sky(scene,
-                  Idir = 0.0, # No direct solar radiation
-                  Idif = sum(Idir_PAR)/10*DL, # Daily Diffuse solar radiation
-                  nrays_dif = 1_000_000, # Total number of rays for diffuse solar radiation
-                  sky_model = StandardSky, # Angular distribution of solar radiation
-                  dome_method = equal_solid_angles, # Discretization of the sky dome
-                  ntheta = 9, # Number of discretization steps in the zenith angle
-                  nphi = 12) # Number of discretization steps in the azimuth angle
+                  Idir = 0.0, ## No direct solar radiation
+                  Idif = sum(Idir_PAR)/10*DL, ## Daily Diffuse solar radiation
+                  nrays_dif = 1_000_000, ## Total number of rays for diffuse solar radiation
+                  sky_model = StandardSky, ## Angular distribution of solar radiation
+                  dome_method = equal_solid_angles, ## Discretization of the sky dome
+                  ntheta = 9, ## Number of discretization steps in the zenith angle
+                  nphi = 12) ## Number of discretization steps in the azimuth angle
     # Add direct sources for different times of the day
     for I in Idir_PAR
         push!(dome, sky(scene, Idir = I/10*DL, nrays_dir = 100_000, Idif = 0.0)[1])
     end
     return dome
 end
-```
 
-The 3D scene and the light sources are then combined into a `RayTracer` object,
-together with general settings for the ray tracing simulation chosen via `RTSettings()`.
-The most important settings refer to the Russian roulette system and the grid
-cloner (see section on Ray Tracing for details). The settings for the Russian
-roulette system include the number of times a ray will be traced
-deterministically (`maxiter`) and the probability that a ray that exceeds `maxiter`
-is terminated (`pkill`). The grid cloner is used to approximate an infinite canopy
-by replicating the scene in the different directions (`nx` and `ny` being the
-number of replicates in each direction along the x and y axes, respectively). It
-is also possible to turn on parallelization of the ray tracing simulation by
-setting `parallel = true` (currently this uses Julia's builtin multithreading
-capabilities).
-
-In addition `RTSettings()`, an acceleration structure and a splitting rule can
-be defined when creating the `RayTracer` object (see ray tracing documentation
-for details). The acceleration structure allows speeding up the ray tracing
-by avoiding testing all rays against all objects in the scene.
-
-```julia
 function create_raytracer(scene, sources)
     settings = RTSettings(pkill = 0.9, maxiter = 4, nx = 5, ny = 5, parallel = true)
     RayTracer(scene, sources, settings = settings, acceleration = BVH,
                      rule = SAH{3}(5, 10));
 end
-```
 
-The actual ray tracing simulation is performed by calling the `trace!()` method
-on the ray tracing object. This will trace all rays from all light sources and
-update the radiant power absorbed by the different surfaces in the scene inside
-the `Material` objects (see `feed!()` above):
-
-```julia
 function run_raytracer!(forest; DOY = 182)
     scene   = create_scene(forest)
     sources = create_sky(scene = scene, DOY = DOY)
@@ -309,17 +208,7 @@ function run_raytracer!(forest; DOY = 182)
     trace!(rtobj)
     return nothing
 end
-```
 
-The total PAR absorbed for each tree is calculated from the material objects of
-the different internodes (using `power()` on the `Material` object). Note that
-the `power()` function returns three different values, one for each waveband,
-but they are added together as RUE is defined for total PAR.
-
-
-```julia
-# Run the ray tracer, calculate PAR absorbed per tree and add it to the daily
-# total using general weighted quadrature formula
 function calculate_PAR!(forest;  DOY = 182)
     # Reset PAR absorbed by the tree (at the start of a new day)
     reset_PAR!(forest)
@@ -334,21 +223,13 @@ function calculate_PAR!(forest;  DOY = 182)
     return nothing
 end
 
-# Reset PAR absorbed by the tree (at the start of a new day)
 function reset_PAR!(forest)
     for tree in forest
         data(tree).PAR = 0.0
     end
     return nothing
 end
-```
 
-### Growth
-
-We need some functions to compute the length and width of a leaf or internode
-from its biomass
-
-```julia
 function leaf_dims(biomass, vars)
     leaf_biomass = biomass
     leaf_area    = biomass/vars.SLW
@@ -364,44 +245,18 @@ function int_dims(biomass, vars)
     int_width   = int_length/vars.IS
     return int_length, int_width
 end
-```
 
-Each day, the total biomass of the tree is updated using a simple RUE formula
-and the increment of biomass is distributed across the organs proportionally to
-their relative sink strength (of leaves or internodes).
-
-The sink strength of leaves is modelled with a beta distribution scaled to the
-`leaf_expansion` argument that determines the duration of leaf growth, whereas
-for the internodes it follows a negative exponential distribution. The `pdf`
-function computes the probability density of each distribution which is taken as
-proportional to the sink strength (the model is actually source-limited since we
-imposed a particular growth rate).
-
-```julia
 sink_strength(leaf, vars) = leaf.age > vars.leaf_expansion ? 0.0 :
                             pdf(leaf.sink, leaf.age/vars.leaf_expansion)/100.0
 plot(0:1:50, x -> sink_strength(TreeTypes.Leaf(age = x), TreeTypes.treeparams()),
      xlabel = "Age", ylabel = "Sink strength", label = "Leaf")
-```
 
-```julia
 sink_strength(int) = pdf(int.sink, int.age)
 plot!(0:1:50, x -> sink_strength(TreeTypes.Internode(age = x)), label = "Internode")
-```
 
-Now we need a function that updates the biomass of the tree, allocates it to the
-different organs and updates the dimensions of said organs. For simplicity,
-we create the functions `leaves()` and `internodes()` that will apply the queries
-to the tree required to extract said nodes:
-
-```julia
 get_leaves(tree) = apply(tree, Query(TreeTypes.Leaf))
 get_internodes(tree) = apply(tree, Query(TreeTypes.Internode))
-```
 
-The age of the different organs is updated every time step:
-
-```julia
 function age!(all_leaves, all_internodes, all_meristems)
     for leaf in all_leaves
         leaf.age += 1
@@ -414,12 +269,7 @@ function age!(all_leaves, all_internodes, all_meristems)
     end
     return nothing
 end
-```
 
-The daily growth is allocated to different organs proportional to their sink
-strength.
-
-```julia
 function grow!(tree, all_leaves, all_internodes)
     # Compute total biomass increment
     tdata = data(tree)
@@ -442,11 +292,7 @@ function grow!(tree, all_leaves, all_internodes)
     end
     return nothing
 end
-```
 
-Finally, we need to update the dimensions of the organs. The leaf dimensions are
-
-```julia
 function size_leaves!(all_leaves, tvars)
     for leaf in all_leaves
         leaf.length, leaf.width = leaf_dims(leaf.biomass, tvars)
@@ -459,15 +305,7 @@ function size_internodes!(all_internodes, tvars)
     end
     return nothing
 end
-```
 
-### Daily step
-
-All the growth and developmental functions are combined together into a daily
-step function that updates the forest by iterating over the different trees in
-parallel.
-
-```julia
 get_meristems(tree) = apply(tree, Query(TreeTypes.Meristem))
 function daily_step!(forest, DOY)
     # Compute PAR absorbed by each tree
@@ -489,30 +327,15 @@ function daily_step!(forest, DOY)
         rewrite!(tree)
     end
 end
-```
 
-### Initialization
-
-The trees are initialized on a regular grid with random values for the initial
-orientation and RUE:
-
-```julia
 RUEs = rand(Normal(1.5,0.2), 10, 10)
 histogram(vec(RUEs))
-```
 
-```julia
 orientations = [rand()*360.0 for i = 1:2.0:20.0, j = 1:2.0:20.0]
 histogram(vec(orientations))
-```
 
-```julia
 origins = [Vec(i,j,0) for i = 1:2.0:20.0, j = 1:2.0:20.0];
-```
 
-The following initalizes a tree based on the origin, orientation and RUE:
-
-```julia
 function create_tree(origin, orientation, RUE)
     # Initial state and parameters of the tree
     data = TreeTypes.treeparams(RUE = RUE)
@@ -534,17 +357,7 @@ function create_tree(origin, orientation, RUE)
                  data = data)
     return tree
 end
-```
 
-
-## Visualization
-
-As in the previous example, it makes sense to visualize the forest with a soil
-tile beneath it. Unlike in the previous example, we will construct the soil tile
-using a dedicated graph and generate a `Scene` object which can later be
-merged with the rest of scene generated in daily step:
-
-```julia
 Base.@kwdef struct Soil <: VirtualPlantLab.Node
     length::Float64
     width::Float64
@@ -552,29 +365,17 @@ end
 function VirtualPlantLab.feed!(turtle::Turtle, s::Soil, data)
     Rectangle!(turtle, length = s.length, width = s.width, color = RGB(255/255, 236/255, 179/255))
 end
-soil_graph = RA(-90.0) + T(Vec(0.0, 10.0, 0.0)) + # Moves into position
-             Soil(length = 20.0, width = 20.0) # Draws the soil tile
+soil_graph = RA(-90.0) + T(Vec(0.0, 10.0, 0.0)) + ## Moves into position
+             Soil(length = 20.0, width = 20.0) ## Draws the soil tile
 soil = Scene(Graph(axiom = soil_graph));
 render(soil, axes = false)
-```
 
-And the following function renders the entire scene (notice that we need to
-use `display()` to force the rendering of the scene when called within a loop
-or a function):
-
-```julia
 function render_forest(forest, soil)
-    scene = Scene(vec(forest)) # create scene from forest
-    scene = Scene([scene, soil]) # merges the two scenes
+    scene = Scene(vec(forest)) ## create scene from forest
+    scene = Scene([scene, soil]) ## merges the two scenes
     display(render(scene))
 end
-```
 
-## Simulation
-
-We can now create a forest of trees on a regular grid:
-
-```julia
 forest = create_tree.(origins, orientations, RUEs);
 render_forest(forest, soil)
 start = 180
@@ -585,4 +386,5 @@ for i in 1:20
         render_forest(forest, soil)
     end
 end
-```
+
+# This file was generated using Literate.jl, https://github.com/fredrikekre/Literate.jl

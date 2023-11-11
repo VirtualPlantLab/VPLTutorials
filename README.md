@@ -1,6 +1,6 @@
 # VPLTutorials
 
-Collection of tutorials for [VPL](virtualplantlab.com). Each tutorial is given
+Collection of tutorials for [VPL](https://virtualplantlab.com/dev/). Each tutorial is given
 in two different formats:
 
 - As a Julia source file (`.jl`) with documentation as comments.
@@ -9,5 +9,5 @@ in two different formats:
 
 In addition to VPL, the tutorials some of the require the following packages:
 
-- [Sky.jl](https://github.com/VirtualPlantLab/Sky.jl)
+- [SkyDomes.jl](https://github.com/VirtualPlantLab/SkyDomes.jl)
 - [Ecophys.jl](https://github.com/VirtualPlantLab/Ecophys.jl)
