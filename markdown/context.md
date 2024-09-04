@@ -1,8 +1,16 @@
+
+
 # Context sensitive rules
 
-Alejandro Morales
+Alejandro Morales & Ana Ernst
 
 Centre for Crop Systems Analysis - Wageningen University
+
+> ## TL;DR
+> - Relational rules based on properties of neighbouring nodes
+> - Capturing the context
+> - Queries can be used to retrieve nodes matching any relational rule or context
+>
 
 This examples goes back to a very simple situation: a linear sequence of 3
 cells. The point of this example is to introduce relational growth rules and
@@ -30,7 +38,7 @@ parent node that was captured. Note that that now, the rhs component gets a new
 argument, which corresponds to the context of the father node captured in the
 lhs.
 
-````julia
+```julia
 using VirtualPlantLab
 module types
     using VirtualPlantLab
@@ -49,7 +57,7 @@ end
 rule = Rule(Cell, lhs = transfer, rhs = (context, father) -> Cell(data(father).state), captures = true)
 axiom = Cell(1) + Cell(0) + Cell(0)
 pop = Graph(axiom = axiom, rules = rule)
-````
+```
 
 In the original state defined by the axiom, only the first node contains a state
 of 1. We can retrieve the state of each node with a query. A `Query` object is a
@@ -59,24 +67,24 @@ all the `Cell` nodes. A `Query` object is created by passing the type of the
 node to be queried as an argument to the `Query` function. Then, to actually
 execute the query we need to use the `apply` function on the graph.
 
-````julia
+```julia
 getCell = Query(Cell)
 apply(pop, getCell)
-````
+```
 
 If we rewrite the graph one we will see that a second cell now has a state of 1.
 
-````julia
+```julia
 rewrite!(pop)
 apply(pop, getCell)
-````
+```
 
 And a second iteration results in all cells have a state of 1
 
-````julia
+```julia
 rewrite!(pop)
 apply(pop, getCell)
-````
+```
 
 Note that queries may not return nodes in the same order as they were created
 because of how they are internally stored (and because queries are meant to
@@ -89,21 +97,21 @@ the `state` of each node in a vector (unlike Rules and Queries, this function
 takes the actual node as argument rather than a `Context` object, see the
 documentation for more details):
 
-````julia
+```julia
 pop  = Graph(axiom = axiom, rules = rule)
 states = Int64[]
 traverse_dfs(pop, fun = node -> push!(states, node.state))
 states
-````
+```
 
 Now the states of the nodes are in the same order as they were created:
 
-````julia
+```julia
 rewrite!(pop)
 states = Int64[]
 traverse_dfs(pop, fun = node -> push!(states, node.state))
 states
-````
+```
 
 ---
 
